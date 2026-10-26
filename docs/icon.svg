@@ -1,0 +1,28 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 108 108" role="img" aria-label="FuckBiliAds">
+  <title>FuckBiliAds</title>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#20112B"/>
+      <stop offset="0.55" stop-color="#12121A"/>
+      <stop offset="1" stop-color="#07080C"/>
+    </linearGradient>
+    <linearGradient id="slash" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#FF4757"/>
+      <stop offset="1" stop-color="#FF2D55"/>
+    </linearGradient>
+  </defs>
+
+  <!-- tile background -->
+  <rect width="108" height="108" rx="24" fill="url(#bg)"/>
+  <!-- subtle accent block, kept inside the adaptive-icon safe zone -->
+  <circle cx="54" cy="56" r="30" fill="#FF2D55" opacity="0.10"/>
+
+  <!-- skip-forward chevrons -->
+  <g fill="none" stroke="#FFFFFF" stroke-width="8.5" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M36 30 L54 54 L36 78"/>
+    <path d="M54 30 L72 54 L54 78"/>
+  </g>
+
+  <!-- "no ads" slash -->
+  <path d="M27 25 L81 83" fill="none" stroke="url(#slash)" stroke-width="7.5" stroke-linecap="round"/>
+</svg>

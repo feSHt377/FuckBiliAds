@@ -1,0 +1,116 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      version_name:
+        description: 'versionName, e.g. 1.0.0 (defaults to 1.0.0)'
+        required: false
+        default: ''
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build signed APK
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Resolve versions
+        id: ver
+        shell: bash
+        run: |
+          if [ "${{ github.ref_type }}" = "tag" ]; then
+            name="${GITHUB_REF_NAME#v}"
+          elif [ -n "${{ inputs.version_name }}" ]; then
+            name="${{ inputs.version_name }}"
+          else
+            name="1.0.0"
+          fi
+          echo "name=$name" >> "$GITHUB_OUTPUT"
+          echo "code=${{ github.run_number }}" >> "$GITHUB_OUTPUT"
+          echo "Building FuckBiliAds $name (code ${{ github.run_number }})"
+
+      - name: Decode keystore
+        shell: bash
+        env:
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+        run: |
+          set -euo pipefail
+          if [ -z "${KEYSTORE_BASE64:-}" ]; then
+            echo "::error::KEYSTORE_BASE64 secret is not set"
+            exit 1
+          fi
+          printf '%s' "$KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/release.jks"
+          ls -l "$RUNNER_TEMP/release.jks"
+
+      - name: Build release APK
+        shell: bash
+        env:
+          KEYSTORE_FILE: ${{ runner.temp }}/release.jks
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          chmod +x gradlew
+          ./gradlew :app:assembleRelease --console=plain \
+            -PversionCode="${{ steps.ver.outputs.code }}" \
+            -PversionName="${{ steps.ver.outputs.name }}"
+
+      - name: Collect artifact
+        shell: bash
+        run: |
+          set -euo pipefail
+          apk="$(find app/build/outputs/apk/release -name '*.apk' | head -n 1)"
+          test -n "$apk"
+          cp "$apk" "FuckBiliAds-${{ steps.ver.outputs.name }}.apk"
+          printf '### FuckBiliAds %s\n\n`%s`\n' \
+            "${{ steps.ver.outputs.name }}" "$(sha256sum "FuckBiliAds-${{ steps.ver.outputs.name }}.apk" | cut -d' ' -f1)" \
+            >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Verify signature
+        shell: bash
+        run: |
+          set -euo pipefail
+          apksigner="$(find "$ANDROID_SDK_ROOT/build-tools" -name apksigner | sort -V | tail -n 1)"
+          "$apksigner" verify --print-certs "FuckBiliAds-${{ steps.ver.outputs.name }}.apk"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: FuckBiliAds-${{ steps.ver.outputs.name }}
+          path: FuckBiliAds-${{ steps.ver.outputs.name }}.apk
+          if-no-files-found: error
+
+      - name: Publish release
+        if: github.ref_type == 'tag'
+        uses: softprops/action-gh-release@v2
+        with:
+          files: FuckBiliAds-${{ steps.ver.outputs.name }}.apk
+          name: FuckBiliAds v${{ steps.ver.outputs.name }}
+          generate_release_notes: true
+          fail_on_unmatched_files: true

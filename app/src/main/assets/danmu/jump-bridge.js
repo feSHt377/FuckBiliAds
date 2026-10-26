@@ -1,0 +1,21 @@
+/* DanmuJump module resource: jump-bridge.js */
+__DJ_AIRBORNE.prototype.__danmuJump=function(target){const player=this._context.videoPlayer,from=player.currentTime;
+    if(this._airborneToast)this._airborneToast.release();
+    player.seekTo(target);
+    this._airborneToast=new __DJ_TOAST(this.size,this._suggestedFactor);
+    this._airborneToast.onClick=()=>{cron.log('[DanmuJumpJS] module undo targetSec='+Math.floor(from));
+        player.seekTo(Math.floor(from));
+        return true;
+        };
+    this.view.addSubView(this._airborneToast);
+    this._airborneToast.show();
+    cron.log('[DanmuJumpJS] module jump targetSec='+target+' fromSec='+from);
+    return {accepted:true,targetSec:target,fromSec:from};
+    };
+__DJ_RPC.setMessageHandler('DanmuJump_Jump',request=>{const target=request.args&&request.args.targetSec;
+    if(typeof target!=='number'||!Number.isFinite(target)||target<0)return new __DJ_RESPONSE({accepted:false,reason:'invalid target'});
+    const controller=globalThis.__danmuJumpAirborne;
+    if(!controller)return new __DJ_RESPONSE({accepted:false,reason:'airborne controller unavailable'});
+    return new __DJ_RESPONSE(controller.__danmuJump(target));
+    });
+cron.log('[DanmuJumpJS] jump bridge registered');

@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Source artwork: docs/icon.svg (keep both in sync) -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <!-- soft accent glow behind the mark -->
+    <path
+        android:pathData="M54,56m-30,0a30,30 0,1 1,60 0a30,30 0,1 1,-60 0"
+        android:fillAlpha="0.10"
+        android:fillColor="#FF2D55" />
+
+    <!-- skip-forward chevrons -->
+    <path
+        android:pathData="M36,30 L54,54 L36,78"
+        android:fillColor="#00000000"
+        android:strokeColor="#FFFFFF"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:strokeWidth="8.5" />
+    <path
+        android:pathData="M54,30 L72,54 L54,78"
+        android:fillColor="#00000000"
+        android:strokeColor="#FFFFFF"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:strokeWidth="8.5" />
+
+    <!-- "no ads" slash -->
+    <path
+        android:pathData="M27,25 L81,83"
+        android:fillColor="#00000000"
+        android:strokeColor="#FF3B52"
+        android:strokeLineCap="round"
+        android:strokeWidth="7.5" />
+
+</vector>

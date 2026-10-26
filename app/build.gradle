@@ -1,0 +1,72 @@
+plugins {
+    alias(libs.plugins.android.application)
+}
+
+// Version can be overridden from CI: -PversionCode=12 -PversionName=1.2.3
+def appVersionCode = (project.findProperty("versionCode") ?: "1").toString().toInteger()
+def appVersionName = (project.findProperty("versionName") ?: "1.0.0").toString()
+
+// Release signing material is injected by CI (see .github/workflows/release.yml).
+def ksPath = System.getenv("KEYSTORE_FILE") ?: project.findProperty("KEYSTORE_FILE")
+def ksStorePass = System.getenv("KEYSTORE_PASSWORD") ?: project.findProperty("KEYSTORE_PASSWORD")
+def ksAlias = System.getenv("KEY_ALIAS") ?: project.findProperty("KEY_ALIAS")
+def ksKeyPass = System.getenv("KEY_PASSWORD") ?: project.findProperty("KEY_PASSWORD")
+def hasReleaseSigning = ksPath != null && new File(ksPath.toString()).exists()
+
+android {
+    namespace 'com.fuck.bili.ads'
+    compileSdk {
+        version = release(36)
+    }
+
+    defaultConfig {
+        applicationId "com.fuck.bili.ads"
+        minSdk 26
+        targetSdk 36
+        versionCode appVersionCode
+        versionName appVersionName
+    }
+
+    buildFeatures {
+        buildConfig = true
+    }
+
+    signingConfigs {
+        if (hasReleaseSigning) {
+            release {
+                storeFile file(ksPath.toString())
+                storePassword ksStorePass
+                keyAlias ksAlias
+                keyPassword ksKeyPass
+            }
+        }
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+            if (hasReleaseSigning) {
+                signingConfig signingConfigs.release
+            }
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_11
+        targetCompatibility JavaVersion.VERSION_11
+    }
+
+    packaging {
+        jniLibs {
+            useLegacyPackaging false
+        }
+    }
+}
+
+dependencies {
+    implementation libs.appcompat
+    implementation libs.material
+    implementation(libs.dexkit.v220)
+    compileOnly libs.api
+}

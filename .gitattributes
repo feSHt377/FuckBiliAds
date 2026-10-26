@@ -1,0 +1,12 @@
+* text=auto
+
+# Keep the wrapper script executable-friendly on Linux CI
+gradlew text eol=lf
+*.sh text eol=lf
+*.bat text eol=crlf
+
+*.png binary
+*.webp binary
+*.jar binary
+*.zip binary
+*.jks binary

@@ -1,0 +1,49 @@
+{
+  "id": "dfm-3.12.0-400ac5ea",
+  "version": "3.12.0",
+  "commit": "400ac5eae28407c896f2bbcdb6889b935e444da0",
+  "mainPatches": [
+    {
+      "name": "airborne-controller",
+      "find": "ES=class extends Gs{constructor(i){super(lt,hi,i,\"airborne\"),",
+      "replace": "ES=class extends Gs{constructor(i){super(lt,hi,i,\"airborne\"),globalThis.__danmuJumpAirborne=this,cron.log('[DanmuJumpJS] airborne controller ready'),"
+    },
+    {
+      "name": "airborne-destroy",
+      "find": "destroy(i){var t;(t=this._airborneToast)==null||t.release(),this._airborneToast=void 0,super.destroy(i)}}",
+      "replace": "destroy(i){if(globalThis.__danmuJumpAirborne===this)globalThis.__danmuJumpAirborne=void 0;var t;(t=this._airborneToast)==null||t.release(),this._airborneToast=void 0,super.destroy(i)}}"
+    },
+    {
+      "name": "official-jump",
+      "find": "const o=this._context.videoPlayer.currentTime;return this._context.videoPlayer.seekTo(s),this._airborneToast=new SS(this.size,this._suggestedFactor)",
+      "replace": "const o=this._context.videoPlayer.currentTime;try{cron.log('[DanmuJumpJS] airborne targetSec='+s+' fromSec='+o);}catch(error){}return this._context.videoPlayer.seekTo(s),this._airborneToast=new SS(this.size,this._suggestedFactor)"
+    },
+    {
+      "name": "official-undo",
+      "find": "this._airborneToast.onClick=a=>(this._context.videoPlayer.seekTo(Math.floor(o)),!0)",
+      "replace": "this._airborneToast.onClick=a=>{try{cron.log('[DanmuJumpJS] undo targetSec='+Math.floor(o));}catch(error){}return this._context.videoPlayer.seekTo(Math.floor(o)),!0}"
+    },
+    {
+      "name": "toast-constructor",
+      "find": "SS=(bs=class extends Tt{constructor(t,e){",
+      "replace": "SS=(bs=class extends Tt{constructor(t,e,moduleText){"
+    },
+    {
+      "name": "toast-label",
+      "find": "this._label.text=F.strings.danmaku_global_string_89",
+      "replace": "this._label.text=moduleText||F.strings.danmaku_global_string_89"
+    },
+    {
+      "name": "bridge-registration",
+      "find": "var Es=new J;",
+      "replace": "var Es=new J;const __DJ_AIRBORNE=ES,__DJ_TOAST=SS,__DJ_RPC=Es,__DJ_RESPONSE=pt;\nconst __DJ_CONFIG={{CONFIG}};\n{{BRIDGE}}\n{{PROMPT}}\n"
+    },
+    {
+      "name": "activity-bind",
+      "find": "const s=new Hy(t);t.push(s),Hd.init(t,s)",
+      "replace": "const s=new Hy(t);t.push(s),s.fetchLayouter(\"airborne\"),__dj.bind(t,s),cron.log(\"[DanmuJumpJS] airborne controller proactively initialized\"),Hd.init(t,s)"
+    }
+  ],
+  "workerAnchor": "h=x.DmSegMobileReply.fromBinary(ne.cronDataToUint8Array(u));let l=",
+  "workerReplacement": "h=x.DmSegMobileReply.fromBinary(ne.cronDataToUint8Array(u));\n{{WORKER}}\nlet l="
+}
