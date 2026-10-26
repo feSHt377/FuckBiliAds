@@ -6,7 +6,7 @@
 
 **哔哩哔哩 Xposed 去广告模块 · 小视频广告自动跳过**
 
-![version](https://img.shields.io/badge/version-1.0.6-ff2d55)
+![version](https://img.shields.io/badge/version-1.0.7-ff2d55)
 ![host](https://img.shields.io/badge/host-9.16.1%20tested-00aeec)
 ![platform](https://img.shields.io/badge/platform-Android%208.0%2B-3ddc84)
 ![framework](https://img.shields.io/badge/LSPosed%20%2F%20LSPatch-API%2082%2B-3ddc84)
@@ -54,6 +54,10 @@
 3. 在 LSPosed 中启用模块，**作用域勾选哔哩哔哩**（`tv.danmaku.bili`）；LSPatch 方式则在打补丁时勾选本模块；
 4. 强制停止哔哩哔哩后重新打开。
 
+> **包名**：自 1.0.7 起模块的 ApplicationID 为 `io.github.fesht377.biliads`（旧版为 `com.fuck.bili.ads`）。
+> 两者是不同的应用，从 1.0.6 及更早版本升级时请先卸载旧版、再装新版，否则会同时存在两个模块；
+> 卸载旧版不会影响哔哩哔哩里的设置开关（开关存在宿主侧）。
+
 要求：Android 8.0+（minSdk 26），Xposed API 82+（LSPosed 与 LSPatch 均可）。
 
 ## 兼容性
@@ -79,6 +83,7 @@
 | 框架 | Xposed API 82+；实测 **LSPosed 2.2.1（API 102）** 与 **LSPatch 1.2（API 102）** 均正常 |
 | 架构 | 实测 arm64-v8a；模块无 native 依赖，armeabi-v7a / x86_64 理论上同样可用 |
 | 安装形态 | Root + LSPosed；或无 Root 用 LSPatch 把模块补进宿主 |
+| 模块包名 | `io.github.fesht377.biliads`（1.0.7 起；旧版 `com.fuck.bili.ads` 不再更新） |
 | 实测设备 | OnePlus PGZ110 · Android 15 · arm64-v8a · 哔哩哔哩 9.16.1 |
 
 ### 已知限制
@@ -136,6 +141,13 @@ adb logcat -s FuckBiliAds
 10-26 19:40:12.331 [I] [MARK] source=share activity=com.bilibili.video.story.StoryVideoActivity rv=androidx.recyclerview.widget.RecyclerView adapter=com.bilibili.video.story.L children=3 pos=6 visible=1080x2300 item=com.bilibili.video.story.StoryDetail aid=0 cid=0 adType=-1 adInfo=... feedIsAd=true creativeId=3995855299
 ```
 
+## 1.0.7 变更（上架模块仓库）
+
+- **ApplicationID 改为 `io.github.fesht377.biliads`**：Xposed 模块仓库要求包名是自有域名反写或 `io.github.{用户名}`，原 `com.fuck.bili.ads` 无法通过审核。Java 包名保持 `com.fuck.bili.ads` 不变，只改 ApplicationID，因此代码与 Hook 无改动。
+- **`xposedminversion` 从 54 提到 82**，与编译所用的 Xposed API 保持一致，避免旧框架按 54 加载后崩溃。
+- 设置页「模块版本」改为读模块自己的 `BuildConfig`，不再依赖硬编码包名。
+- 模块同步发布到 [Xposed 模块仓库](https://modules.lsposed.org/)。
+
 ## 1.0.4 ~ 1.0.6 变更（9.16.1 适配）
 
 - **启动播报**：进入 B 站后用 Toast 显示 `已加载 · 小视频✓ 入口✓ 分享✓`，加载失败或部分失败会带 ✗；设置页「诊断 → 播报模块状态」可随时重播。
@@ -179,6 +191,22 @@ export KEY_PASSWORD=...
 | `KEY_PASSWORD` | 密钥口令 |
 
 签名密钥请不要入库；本机备份放在仓库之外，更换密钥会导致已安装版本无法覆盖升级。
+
+## 模块仓库
+
+本模块同时发布到 [Xposed 模块仓库](https://modules.lsposed.org/)（modules.lsposed.org），
+可以在 LSPosed 管理器的「模块仓库」里直接搜索安装与更新。
+
+上架规则要求 ApplicationID 为自有域名反写或 `io.github.{用户名}` 前缀，因此 1.0.7 起包名改为
+`io.github.fesht377.biliads`；索引仓库为
+[`Xposed-Modules-Repo/io.github.fesht377.biliads`](https://github.com/Xposed-Modules-Repo/io.github.fesht377.biliads)，
+只放 `SUMMARY`、`README.md` 与 release 产物，源码仍以本仓库为准。
+
+- release tag 必须是 `VersionCode-VersionName`（例如 `9-1.0.7`），且 release 必须带 APK，否则不会进索引；
+- 仓库描述 / 名称只能在网页端改（官方限制：无法通过 API 更新）；
+- 上架用的 `SUMMARY` 与 `README.md` 模板放在 [`docs/module-repo/`](docs/module-repo/)；
+- 打标签后 `.github/workflows/release.yml` 会顺带把同一个 APK 同步发到模块仓库，
+  需要先在 Secrets 里配置 `MODULE_REPO_TOKEN`（对 `Xposed-Modules-Repo/...` 有写权限的 PAT）；未配置时该步骤自动跳过。
 
 ## 目录
 

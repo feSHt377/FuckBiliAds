@@ -31,6 +31,7 @@ import android.widget.Switch;
 import android.widget.TextView;
 import android.widget.Toast;
 
+import com.fuck.bili.ads.BuildConfig;
 import com.fuck.bili.ads.story.StoryAdSniper;
 import com.fuck.bili.ads.story.StoryDebug;
 import com.fuck.bili.ads.story.StoryDiag;
@@ -553,11 +554,11 @@ public final class FbaSettings {
     }
 
     private static String versionName(Context context) {
+        // 模块自身版本，必须读模块的 BuildConfig（context 通常是宿主 Activity）。
         try {
-            return context.getPackageManager()
-                    .getPackageInfo("com.fuck.bili.ads", 0).versionName;
+            return BuildConfig.VERSION_NAME;
         } catch (Throwable t) {
-            return "1.0.6";
+            return "1.0.7";
         }
     }
 

@@ -14,7 +14,7 @@ import java.util.zip.ZipFile;
 /** 最新弹幕包适配：所有混淆片段放在 assets/danmu/latest.json。 */
 final class DanmuScriptPatcher {
     private static final String TAG = "DanmuJump";
-    private static final String MODULE_PACKAGE = "com.fuck.bili.ads";
+    private static final String MODULE_PACKAGE = "io.github.fesht377.biliads";
 
     static final class ScriptMismatchException extends IOException {
         ScriptMismatchException(String message) { super(message); }

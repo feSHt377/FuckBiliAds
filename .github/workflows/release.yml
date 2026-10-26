@@ -124,3 +124,30 @@ jobs:
           name: FuckBiliAds v${{ steps.ver.outputs.name }}
           generate_release_notes: true
           fail_on_unmatched_files: true
+
+      - name: Sync to Xposed module repository
+        if: github.ref_type == 'tag'
+        shell: bash
+        env:
+          MODULE_REPO_TOKEN: ${{ secrets.MODULE_REPO_TOKEN }}
+          VERSION_NAME: ${{ steps.ver.outputs.name }}
+          VERSION_CODE: ${{ steps.ver.outputs.code }}
+        run: |
+          set -euo pipefail
+          if [ -z "${MODULE_REPO_TOKEN:-}" ]; then
+            echo "::notice::MODULE_REPO_TOKEN 未配置，跳过 Xposed 模块仓库同步"
+            exit 0
+          fi
+          repo="Xposed-Modules-Repo/io.github.fesht377.biliads"
+          tag="${VERSION_CODE}-${VERSION_NAME}"
+          apk="FuckBiliAds-${VERSION_NAME}.apk"
+          export GH_TOKEN="$MODULE_REPO_TOKEN"
+          if gh release view "$tag" --repo "$repo" >/dev/null 2>&1; then
+            echo "release $tag 已存在，覆盖 asset"
+            gh release upload "$tag" "$apk" --repo "$repo" --clobber
+          else
+            notes="$(git log -1 --pretty=%B)"
+            gh release create "$tag" "$apk" --repo "$repo" \
+              --title "$VERSION_NAME" --notes "${notes:-FuckBiliAds $VERSION_NAME}"
+          fi
+          echo "已同步到 $repo $tag"
