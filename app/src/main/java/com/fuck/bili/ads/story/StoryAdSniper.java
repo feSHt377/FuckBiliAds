@@ -6,8 +6,8 @@ import android.os.Looper;
 import android.util.Log;
 import android.view.ViewGroup;
 
-import java.util.HashSet;
-import java.util.Set;
+import java.util.HashMap;
+import java.util.Map;
 
 import de.robv.android.xposed.XC_MethodHook;
 import de.robv.android.xposed.XposedBridge;
@@ -29,7 +29,7 @@ public final class StoryAdSniper {
 
     private static final String TAG = "FuckBiliAds";
 
-    /** Toast shown after a successful skip. */
+    /** Toast shown right after a successful skip. */
     static final String TOAST_TEXT = "检测到广告，已跳过！FUCK BILI ADS！";
 
     private static final String STORY_ACTIVITY = "com.bilibili.video.story.StoryVideoActivity";
@@ -38,6 +38,9 @@ public final class StoryAdSniper {
     private static final long COOLDOWN_MS = 700L;
     private static final long CONFIRM_DELAY_MS = 300L;
     private static final long VERIFY_DELAY_MS = 900L;
+
+    /** The same card may be skipped again when the user scrolls back much later. */
+    private static final long RESKIP_AFTER_MS = 120_000L;
 
     /** Hard stop for pathological pages: at most N skips inside a time window. */
     private static final int MAX_SKIPS_PER_WINDOW = 12;
@@ -117,7 +120,9 @@ public final class StoryAdSniper {
 
         final Activity activity;
         final Handler handler = new Handler(Looper.getMainLooper());
-        final Set<String> skipped = new HashSet<>();
+
+        /** card identity -> last skip timestamp. */
+        final Map<String, Long> skippedAt = new HashMap<>();
 
         boolean running;
         String pendingId;
@@ -174,10 +179,17 @@ public final class StoryAdSniper {
                 return;
             }
             String id = StoryView.identityOf(item, pos);
-            if (id.equals(pendingId) || skipped.contains(id)) {
+            long now = System.currentTimeMillis();
+            if (id.equals(pendingId)) {
                 return;
             }
-            long now = System.currentTimeMillis();
+            Long seenAt = skippedAt.get(id);
+            if (seenAt != null) {
+                if (now - seenAt < RESKIP_AFTER_MS) {
+                    return;
+                }
+                skippedAt.remove(id);
+            }
             if (now - lastSkipAt < COOLDOWN_MS) {
                 return;
             }
@@ -203,13 +215,11 @@ public final class StoryAdSniper {
 
         private void skip(final String id, final int pos) {
             lastSkipAt = System.currentTimeMillis();
-            skipped.add(id);
-            if (skipped.size() > 400) {
-                skipped.clear();
-                skipped.add(id);
+            skippedAt.put(id, lastSkipAt);
+            if (skippedAt.size() > 400) {
+                skippedAt.clear();
+                skippedAt.put(id, lastSkipAt);
             }
-
-            HostToast.show(activity, TOAST_TEXT);
 
             handler.postDelayed(new Runnable() {
                 @Override
@@ -220,12 +230,17 @@ public final class StoryAdSniper {
                     ViewGroup rv = StoryView.findRecycler(activity);
                     if (rv == null || StoryView.dominantPos(rv) != pos) {
                         // The user already moved on: do not fight the gesture.
+                        pendingId = null;
                         return;
                     }
                     if (!StoryNext.toNext(rv, pos)) {
-                        skipped.remove(id);
+                        skippedAt.remove(id);
+                        pendingId = null;
+                        Log.d(TAG, "story skip failed at pos " + pos);
                         return;
                     }
+                    Log.d(TAG, "story ad skipped at pos " + pos);
+                    HostToast.show(activity, TOAST_TEXT);
                     verifyLater(pos);
                 }
             }, CONFIRM_DELAY_MS);

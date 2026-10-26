@@ -6,7 +6,7 @@
 
 **哔哩哔哩 Xposed 去广告模块 · 小视频广告自动跳过**
 
-![version](https://img.shields.io/badge/version-1.0.0-ff2d55)
+![version](https://img.shields.io/badge/version-1.0.1-ff2d55)
 ![platform](https://img.shields.io/badge/platform-Android%208.0%2B-3ddc84)
 ![framework](https://img.shields.io/badge/LSPosed-%E2%89%A5%2054-00aeec)
 
