@@ -7,6 +7,7 @@ import android.view.View;
 import android.view.ViewGroup;
 
 import java.lang.reflect.Field;
+import java.lang.reflect.Method;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -213,12 +214,192 @@ public final class MineServiceEntry {
                         // never disturb the list
                     }
                 }
+
+                @Override
+                protected void afterHookedMethod(MethodHookParam param) {
+                    // The host routes grid items through its own page manager and
+                    // ignores unknown uris, so the click is attached directly to
+                    // our item view instead of relying on BLRouter.
+                    try {
+                        Object holder = param.args.length > 0 ? param.args[0] : null;
+                        Object position = param.args.length > 1 ? param.args[1] : null;
+                        if (holder == null || !(position instanceof Integer)) {
+                            return;
+                        }
+                        final Object adapterRef = param.thisObject;
+                        final Object holderRef = holder;
+                        final int index = (Integer) position;
+                        android.os.Handler handler = FbaRuntime.handler();
+                        if (handler == null) {
+                            return;
+                        }
+                        handler.postDelayed(() -> attachClick(adapterRef, holderRef, index, 0), 60L);
+                    } catch (Throwable ignore) {
+                        // never disturb the list
+                    }
+                }
             });
             FbaLog.i("mine adapter bound: " + type.getName());
         } catch (Throwable t) {
             FbaLog.e("mine bind hook failed", t);
         }
     }
+
+    private static void attachClick(Object adapter, Object holder, int position, int attempt) {
+        try {
+            List<Object> groups = menuGroups(adapter);
+            if (groups == null || position < 0 || position >= groups.size()) {
+                return;
+            }
+            Object group = groups.get(position);
+            int index = indexOfOurItem(group);
+            if (index < 0) {
+                return;
+            }
+            Object root = XposedHelpers.getObjectField(holder, "itemView");
+            if (!(root instanceof View)) {
+                return;
+            }
+            Object recycler = findRecyclerIn((View) root);
+            if (recycler == null) {
+                return;
+            }
+            Object viewHolder = null;
+            try {
+                viewHolder = XposedHelpers.callMethod(recycler, "findViewHolderForAdapterPosition", index);
+            } catch (Throwable ignore) {
+                // fall back to a retry below
+            }
+            Object itemView = viewHolder == null ? null
+                    : XposedHelpers.getObjectField(viewHolder, "itemView");
+            if (!(itemView instanceof View)) {
+                if (attempt < 5) {
+                    android.os.Handler handler = FbaRuntime.handler();
+                    if (handler != null) {
+                        handler.postDelayed(() -> attachClick(adapter, holder, position, attempt + 1), 120L);
+                    }
+                }
+                return;
+            }
+            hookHolderClick(viewHolder);
+            FbaLog.i("mine entry click hooked (group " + position + ", item " + index + ")");
+        } catch (Throwable t) {
+            FbaLog.e("mine entry click attach failed", t);
+        }
+    }
+
+    /**
+     * Hooks the grid item's {@code onClick(View)} on its holder class.
+     *
+     * <p>Replacing the listener on the item view would leak to recycled rows;
+     * hooking the holder method only reacts when the bound item is ours and
+     * lets every other item keep the host behaviour.
+     */
+    private static void hookHolderClick(Object holder) {
+        if (holder == null) {
+            return;
+        }
+        final Class<?> type = holder.getClass();
+        if (!CLICK_HOOKED.add(type)) {
+            return;
+        }
+        Method onClick = null;
+        for (Class<?> c = type; c != null && c != Object.class && onClick == null; c = c.getSuperclass()) {
+            try {
+                onClick = c.getDeclaredMethod("onClick", View.class);
+            } catch (Throwable ignore) {
+                // keep walking
+            }
+        }
+        if (onClick == null) {
+            FbaLog.w("mine item holder has no onClick(View): " + type.getName());
+            return;
+        }
+        try {
+            XposedBridge.hookMethod(onClick, new XC_MethodHook() {
+                @Override
+                protected void beforeHookedMethod(MethodHookParam param) {
+                    try {
+                        Object item = itemField(param.thisObject);
+                        if (item == null || !SETTINGS_URI.equals(field(item, "uri"))) {
+                            return;
+                        }
+                        Context context = null;
+                        try {
+                            Object itemView = XposedHelpers.getObjectField(param.thisObject, "itemView");
+                            if (itemView instanceof View) {
+                                context = ((View) itemView).getContext();
+                            }
+                        } catch (Throwable ignore) {
+                            // fall back to the app context
+                        }
+                        if (context == null) {
+                            context = FbaRuntime.context();
+                        }
+                        FbaLog.i("mine entry clicked");
+                        FbaSettings.show(context);
+                        param.setResult(null);
+                    } catch (Throwable t) {
+                        FbaLog.e("mine entry click hook failed", t);
+                    }
+                }
+            });
+            FbaLog.i("mine holder click hooked: " + type.getName() + "." + onClick.getName());
+        } catch (Throwable t) {
+            FbaLog.e("mine holder click hook failed", t);
+        }
+    }
+
+    private static Object itemField(Object holder) {
+        for (Class<?> c = holder.getClass(); c != null && c != Object.class; c = c.getSuperclass()) {
+            for (Field field : c.getDeclaredFields()) {
+                try {
+                    if (java.lang.reflect.Modifier.isStatic(field.getModifiers())) {
+                        continue;
+                    }
+                    if (!field.getType().getName().endsWith("MenuGroup$Item")) {
+                        continue;
+                    }
+                    field.setAccessible(true);
+                    return field.get(holder);
+                } catch (Throwable ignore) {
+                    // next field
+                }
+            }
+        }
+        return null;
+    }
+
+    private static int indexOfOurItem(Object group) {
+        List<Object> items = itemsOf(group);
+        for (int i = 0; i < items.size(); i++) {
+            if (SETTINGS_URI.equals(field(items.get(i), "uri"))) {
+                return i;
+            }
+        }
+        return -1;
+    }
+
+    private static Object findRecyclerIn(View root) {
+        java.util.ArrayDeque<View> queue = new java.util.ArrayDeque<>();
+        queue.add(root);
+        while (!queue.isEmpty()) {
+            View view = queue.poll();
+            if (view.getClass().getName().endsWith("RecyclerView")) {
+                return view;
+            }
+            if (view instanceof ViewGroup) {
+                ViewGroup group = (ViewGroup) view;
+                for (int i = 0; i < group.getChildCount(); i++) {
+                    queue.add(group.getChildAt(i));
+                }
+            }
+        }
+        return null;
+    }
+
+    private static final java.util.Set<Class<?>> CLICK_HOOKED =
+            java.util.Collections.newSetFromMap(new java.util.WeakHashMap<Class<?>, Boolean>());
 
     private static final java.util.Set<Class<?>> HOOKED =
             java.util.Collections.newSetFromMap(new java.util.WeakHashMap<Class<?>, Boolean>());

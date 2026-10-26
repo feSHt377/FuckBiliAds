@@ -6,7 +6,7 @@
 
 **哔哩哔哩 Xposed 去广告模块 · 小视频广告自动跳过**
 
-![version](https://img.shields.io/badge/version-1.0.5-ff2d55)
+![version](https://img.shields.io/badge/version-1.0.6-ff2d55)
 ![platform](https://img.shields.io/badge/platform-Android%208.0%2B-3ddc84)
 ![framework](https://img.shields.io/badge/LSPosed-%E2%89%A5%2054-00aeec)
 
@@ -103,6 +103,7 @@ adb logcat -s FuckBiliAds
 - **小视频看门狗**：每 2 秒检查前台 Activity，即使生命周期 Hook 在 LSPatch 上不生效，进入小视频页也会自动开始检测。
 - **诊断可见**：设置页「诊断」分组显示模块各功能状态、小视频最近一次扫描（rv/适配器/pos/条目/adInfo）。
 - **1.0.5**：分享面板若为独立对话框窗口，「标记广告」按钮只跟随窗口 6 秒，关闭面板后不会残留在页面上。
+- **1.0.6**：9.16 的我的页把宫格项交给 `MinePageManager` 处理、**不再走 BLRouter**，未知 uri 点击无反应；改为在条目 ViewHolder 的 `onClick` 上按 `uri` 拦截，点击直接打开设置页。
 
 ## 构建
 
