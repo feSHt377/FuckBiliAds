@@ -7,6 +7,7 @@
 **哔哩哔哩 Xposed 去广告模块 · 小视频广告自动跳过**
 
 ![version](https://img.shields.io/badge/version-1.0.8-ff2d55)
+[![xposed repo](https://img.shields.io/badge/Xposed%20Repo-listed-00aeec)](https://modules.lsposed.org/module/io.github.fesht377.biliads/)
 ![host](https://img.shields.io/badge/host-9.16.1%20tested-00aeec)
 ![platform](https://img.shields.io/badge/platform-Android%208.0%2B-3ddc84)
 ![framework](https://img.shields.io/badge/LSPosed%20%2F%20LSPatch-API%2082%2B-3ddc84)
@@ -199,8 +200,9 @@ export KEY_PASSWORD=...
 
 ## 模块仓库
 
-本模块同时发布到 [Xposed 模块仓库](https://modules.lsposed.org/)（modules.lsposed.org），
-可以在 LSPosed 管理器的「模块仓库」里直接搜索安装与更新。
+本模块同时发布到 [Xposed 模块仓库](https://modules.lsposed.org/)，已收录：
+**[modules.lsposed.org/module/io.github.fesht377.biliads](https://modules.lsposed.org/module/io.github.fesht377.biliads/)**
+（搜索 `FuckBiliAds` 或包名即可）。LSPosed 管理器的「模块仓库」直接读这个索引，可在线安装与更新。
 
 上架规则要求 ApplicationID 为自有域名反写或 `io.github.{用户名}` 前缀，因此 1.0.7 起包名改为
 `io.github.fesht377.biliads`；索引仓库为
