@@ -187,10 +187,11 @@ if (ad != null) {
 
 行为：
 
-1. 页面 `onResume` 启动 400ms 轮询，`onPause` 立即停止；
-2. 每轮取「可见面积最大」的条目，读 `adInfo.feedIsAd`；
-3. 命中广告且通过去重/冷却 → 先 Toast，再等待 500ms 滚到下一条；
-4. 700ms 后校验位置确实前进，未前进则用备选 API 重试一次（最多 2 次）；
+1. 页面 `performResume`/`onResume` 启动 400ms 轮询，`performPause`/`onPause`/`performDestroy` 立即停止；
+2. 每轮取「可见面积最大」的 child，用它的 adapter position 定位条目，读 `adInfo.feedIsAd`；
+3. 命中广告且通过去重/冷却 → 等 300ms 再确认「位置没变、仍是广告」，然后调用滚动；
+4. 滚动请求发出后才弹 Toast；900ms 后校验位置确实前进，未前进则按
+   `smoothScrollToPosition → scrollToPosition → smoothScrollBy(0, height)` 降级重试（最多 2 次）；
 5. 全链路静默失败，绝不抛异常打断宿主播放。
 
 Toast 文案：
@@ -201,9 +202,10 @@ Toast 文案：
 
 ## 3.3 去重与防循环
 
-- 条目身份：`aid`（取不到时退化为 `pos`）；
+- 条目身份：广告优先 `adInfo.feedCreativeId`（广告的 `aid` 恒为 0，用 aid 会把所有广告
+  当成同一条）；普通条目用 `aid`，都取不到时退化为 `pos`；
 - 页面身份：Activity 实例（弱引用），页面销毁即失效；
-- 同一身份只跳一次，冷却 800ms；
+- 同一身份只跳一次，冷却 700ms；只有滚动请求真的发出才登记为「已跳」，一次失败不会把广告永久拉黑；
 - 连续广告允许连续跳，但 15 秒内最多 12 次，超出即暂停本轮；
 - 跳转前再次确认「位置没变、仍然是广告」，避免与用户手动滑动打架；
 - 不修改 Feed 数据、不修改任何返回值。
@@ -214,3 +216,71 @@ Toast 文案：
 - 宿主改版可能更换类名，实现层已做「类不存在即静默退出」；
 - 只对 `tv.danmaku.bili` / `tv.danmaku.bilj` / `com.bilibili.app.in` 生效；
 - 竖屏页以外的广告由模块其他模块负责，互不干扰。
+
+
+---
+
+# 第四部分 · 1.0.2 修复记录（实测「广告视频不跳」的根因）
+
+实测不跳不是判定条件的问题：**可见条目解析在第一步就拿不到位置**，`scan()` 每次都在
+`if (pos < 0) return;` 处退出，日志里除了一行 `story ad auto skip ready` 什么都没有。
+
+## 4.1 根因一（致命）：反射按「精确类型」找方法
+
+`StoryView.call()` 用 `args[i].getClass()` 当形参类型去 `getDeclaredMethod`，而
+`RecyclerView.getChildAdapterPosition(View)` 的形参是 `View`，实际传入的是
+`FrameLayout`、`ViewGroup` 之类的子类：
+
+```java
+getDeclaredMethod("getChildAdapterPosition", FrameLayout.class)   // NoSuchMethodException
+```
+
+于是永远返回 `null` → `dominantPos()` 恒为 `-1` → 整条链路在第一步就断掉。
+最小复现（用 JDK 直接跑同样的解析逻辑）：
+
+```text
+getChildAdapterPosition -> null      // 模块里的 call()
+real call               -> 7         // 直接调用
+```
+
+修复：`call()` 改为按「同名 + 同参数个数 + 形参可由实参赋值」匹配（基本类型自动装箱），
+不再比较精确 `Class`。
+
+## 4.2 根因二：广告身份用 `aid` 去重，第二条广告被当成「已跳过」
+
+广告的 `aid` 是 0，而 `identityOf()` 里 `!"-".equals(aid)` 对 `"0"` 也成立，
+所有广告 id 都变成 `a0`；第一条广告之后的 120 秒内，其余广告全部命中 `skippedAt`
+被静默丢弃。修复：广告优先用 `adInfo.feedCreativeId` 做身份。
+
+## 4.3 根因三：RecyclerView 识别写成精确类名
+
+`"androidx.recyclerview.widget.RecyclerView".equals(view.getClass().getName())`
+遇到宿主的 RecyclerView 子类就找不到列表。修复：沿继承链匹配类名；并且在没有
+`com.bilibili.video.story.*` 适配器时，退化为「可见面积最大的非 ViewPager2 列表」，
+避免评论列表/外层 pager 抢占。
+
+## 4.4 其他加固
+
+| 项 | 修改 |
+|---|---|
+| 条目读取 | 先读当前可见 child 的 ViewHolder 字段（即探测阶段 `bindViewHolder` 拿到的对象），适配器 List 只作兜底 |
+| 适配器 List | 只接受 `com.bilibili.video.story.*` 类型的元素，避免被 `List<Long>` 之类的字段串位 |
+| 字段读取 | 支持 getter 兜底（Kotlin 属性编译成 `getAdInfo()`） |
+| 生命周期 | `performResume`/`onResume` 起，`performPause`/`onPause`/`performDestroy` 停；页面类改名时按 `com.bilibili.video.story.` 包前缀匹配 |
+| Fragment 页面 | 额外挂 `RecyclerView.onAttachedToWindow`：列表挂到窗口且适配器属于 story 包时补启会话 |
+| 跳转校验 | 三级降级重试，见 3.2 第 4 条 |
+
+## 4.5 现场排查
+
+```bash
+adb logcat -s FuckBiliAds
+```
+
+| 日志 | 含义 |
+|---|---|
+| `story ad auto skip ready (page=...)` | hook 安装成功；`package-match` 表示页面类已改名，靠包前缀工作 |
+| `story: story list not found (activity=...)` | 页面起来了但找不到列表（类名或适配器变了） |
+| `story: card at N has adInfo but feedIsAd=...` | 已取到条目但判定不成立（字段语义变了） |
+| `story: ad detected at pos N id=c...` | 判定命中 |
+| `story ad skipped at pos N` | 已下发滚动 |
+| `story: skip did not advance, retry N` | 滚动没生效，正在降级重试 |

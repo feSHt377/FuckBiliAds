@@ -13,6 +13,7 @@ import java.util.HashMap;
 import java.util.Map;
 import java.util.WeakHashMap;
 
+import android.app.AndroidAppHelper;
 import de.robv.android.xposed.IXposedHookLoadPackage;
 import de.robv.android.xposed.XC_MethodHook;
 import de.robv.android.xposed.XC_MethodReplacement;
@@ -22,6 +23,10 @@ import de.robv.android.xposed.callbacks.XC_LoadPackage;
 import com.fuck.bili.ads.chronos.DanmuJump;
 import com.fuck.bili.ads.settings.FollowingTopLeftButton;
 import com.fuck.bili.ads.story.StoryAdSniper;
+import com.fuck.bili.ads.ui.FbaLog;
+import com.fuck.bili.ads.ui.FbaPrefs;
+import com.fuck.bili.ads.ui.MineServiceEntry;
+import com.fuck.bili.ads.ui.StoryShareMark;
 
 public class MainHook implements IXposedHookLoadPackage {
 
@@ -42,6 +47,11 @@ public class MainHook implements IXposedHookLoadPackage {
         if (!lpparam.packageName.equals(PACKAGE_NAME) && !lpparam.packageName.equals(INTERNATIONAL_PACKAGE_NAME) && !lpparam.packageName.equals(PACKAGE_NAME_ALIAS))
             return;
         if (lpparam.packageName.equals(INTERNATIONAL_PACKAGE_NAME)) isInternational = true;
+
+        // Settings + event log live in the host process (the UI is opened from 更多服务).
+        FbaLog.init(AndroidAppHelper.currentApplication());
+        FbaPrefs.init(AndroidAppHelper.currentApplication());
+        FbaLog.i("module loaded for " + lpparam.packageName);
 
         try {
             System.loadLibrary("dexkit");
@@ -91,6 +101,8 @@ public class MainHook implements IXposedHookLoadPackage {
         FollowingListAdSniper.hook(lpparam.classLoader);
         FollowingTopLeftButton.hook(lpparam.classLoader);
         StoryAdSniper.hook(lpparam.classLoader);
+        MineServiceEntry.hook(lpparam.classLoader);
+        StoryShareMark.hook(lpparam.classLoader);
 //        VipJsonTestHook.hook(lpparam.classLoader);
 //        EffectiveVipTesting.hook(lpparam.classLoader);
 
