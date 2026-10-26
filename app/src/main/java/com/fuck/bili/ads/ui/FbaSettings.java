@@ -557,7 +557,7 @@ public final class FbaSettings {
             return context.getPackageManager()
                     .getPackageInfo("com.fuck.bili.ads", 0).versionName;
         } catch (Throwable t) {
-            return "1.0.4";
+            return "1.0.5";
         }
     }
 

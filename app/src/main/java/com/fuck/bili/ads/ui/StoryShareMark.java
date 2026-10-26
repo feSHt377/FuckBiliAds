@@ -251,10 +251,13 @@ public final class StoryShareMark {
             return;
         }
         final Runnable[] holder = new Runnable[1];
+        final int[] ticks = {0};
         holder[0] = new Runnable() {
             @Override
             public void run() {
-                if (CHIPS.get(activity) != chip) {
+                if (CHIPS.get(activity) != chip || ticks[0]++ > 15) {
+                    // Stop following after ~6s: otherwise the chip would be
+                    // re-attached to the page once the panel window is gone.
                     return;
                 }
                 try {
