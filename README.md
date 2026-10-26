@@ -6,7 +6,7 @@
 
 **哔哩哔哩 Xposed 去广告模块 · 小视频广告自动跳过**
 
-![version](https://img.shields.io/badge/version-1.0.7-ff2d55)
+![version](https://img.shields.io/badge/version-1.0.8-ff2d55)
 ![host](https://img.shields.io/badge/host-9.16.1%20tested-00aeec)
 ![platform](https://img.shields.io/badge/platform-Android%208.0%2B-3ddc84)
 ![framework](https://img.shields.io/badge/LSPosed%20%2F%20LSPatch-API%2082%2B-3ddc84)
@@ -141,7 +141,12 @@ adb logcat -s FuckBiliAds
 10-26 19:40:12.331 [I] [MARK] source=share activity=com.bilibili.video.story.StoryVideoActivity rv=androidx.recyclerview.widget.RecyclerView adapter=com.bilibili.video.story.L children=3 pos=6 visible=1080x2300 item=com.bilibili.video.story.StoryDetail aid=0 cid=0 adType=-1 adInfo=... feedIsAd=true creativeId=3995855299
 ```
 
-## 1.0.7 变更（上架模块仓库）
+## 1.0.8 变更
+
+- 上架 [Xposed 模块仓库](https://modules.lsposed.org/)，首个模块仓库 release 由 CI 自动同步（tag 形如 `9-1.0.8`，versionCode 取自 CI run number）；
+- 仓库内 `SUMMARY` / `README.md`（上架版）已推送，包名保持 `io.github.fesht377.biliads`，功能与 1.0.7 一致。
+
+## 1.0.7 变更（包名切换）
 
 - **ApplicationID 改为 `io.github.fesht377.biliads`**：Xposed 模块仓库要求包名是自有域名反写或 `io.github.{用户名}`，原 `com.fuck.bili.ads` 无法通过审核。Java 包名保持 `com.fuck.bili.ads` 不变，只改 ApplicationID，因此代码与 Hook 无改动。
 - **`xposedminversion` 从 54 提到 82**，与编译所用的 Xposed API 保持一致，避免旧框架按 54 加载后崩溃。
