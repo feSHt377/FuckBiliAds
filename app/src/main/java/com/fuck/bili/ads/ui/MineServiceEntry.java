@@ -1,7 +1,6 @@
 package com.fuck.bili.ads.ui;
 
 import android.content.Context;
-import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
 import android.view.View;
@@ -10,8 +9,6 @@ import android.view.ViewGroup;
 import java.lang.reflect.Field;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Map;
-import java.util.WeakHashMap;
 
 import de.robv.android.xposed.XC_MethodHook;
 import de.robv.android.xposed.XposedBridge;
@@ -24,10 +21,14 @@ import de.robv.android.xposed.XposedHelpers;
  * {@code MenuGroup.Item} (title + icon + uri). Appending one item to the right
  * group therefore renders with the host's own grid item, and the click is
  * caught in {@code BLRouter} by its private uri.
+ *
+ * <p>The mine page reloads its data on every silent refresh, which throws away
+ * injected items. The entry is therefore re-applied on every adapter bind and
+ * on a short retry window after each resume, instead of a one-shot flag.
  */
 public final class MineServiceEntry {
 
-    private static final String TAG = "FuckBiliAds";
+    private static final String TAG = FbaRuntime.TAG;
 
     private static final String FRAGMENT = "tv.danmaku.bili.ui.main2.mine.HomeUserCenterFragment";
     private static final String GROUP = "com.bilibili.lib.homepage.mine.MenuGroup";
@@ -38,14 +39,20 @@ public final class MineServiceEntry {
     private static final String ITEM_TITLE = "FuckBiliAds";
     private static final long ITEM_ID = 0x4642414CL;
 
-    private static final Map<Object, Boolean> INJECTED = new WeakHashMap<>();
     private static final Handler MAIN = new Handler(Looper.getMainLooper());
+
+    private static volatile boolean injectedOnce;
 
     private MineServiceEntry() {
     }
 
     public static void hook(ClassLoader classLoader) {
-        hookRouter(classLoader);
+        boolean router = hookRouter(classLoader);
+        boolean page = hookMinePage(classLoader);
+        FbaRuntime.mark("设置入口", router && page);
+    }
+
+    private static boolean hookMinePage(ClassLoader classLoader) {
         try {
             final Class<?> fragment = XposedHelpers.findClass(FRAGMENT, classLoader);
             XposedBridge.hookAllMethods(fragment, "onViewCreated", new XC_MethodHook() {
@@ -65,8 +72,10 @@ public final class MineServiceEntry {
                 }
             });
             FbaLog.i("mine entry hook installed");
+            return true;
         } catch (Throwable t) {
             FbaLog.e("mine entry hook failed", t);
+            return false;
         }
     }
 
@@ -75,7 +84,7 @@ public final class MineServiceEntry {
         return fragment != null && mineFragment.isInstance(fragment);
     }
 
-    private static void hookRouter(ClassLoader classLoader) {
+    private static boolean hookRouter(ClassLoader classLoader) {
         try {
             Class<?> router = XposedHelpers.findClass(ROUTER, classLoader);
             XposedBridge.hookAllMethods(router, "routeTo", new XC_MethodHook() {
@@ -106,8 +115,10 @@ public final class MineServiceEntry {
                 }
             });
             FbaLog.i("router hook installed");
+            return true;
         } catch (Throwable t) {
             FbaLog.e("router hook failed", t);
+            return false;
         }
     }
 
@@ -159,40 +170,93 @@ public final class MineServiceEntry {
             if (!(view instanceof View)) {
                 return;
             }
-            Context context = ((View) view).getContext();
             Object adapter = findAdapter((View) view);
             if (adapter == null) {
                 return;
             }
-            if (Boolean.TRUE.equals(INJECTED.get(adapter))) {
-                return;
+            hookBind(adapter);
+            if (ensure(adapter, true)) {
+                if (!injectedOnce) {
+                    injectedOnce = true;
+                    FbaRuntime.mark("服务入口", true);
+                    FbaLog.i("mine entry injected");
+                }
             }
-            List<Object> groups = menuGroups(adapter);
-            if (groups == null || groups.isEmpty()) {
-                return;
-            }
-            if (containsOurItem(groups)) {
-                INJECTED.put(adapter, Boolean.TRUE);
-                return;
-            }
-            int index = pickGroup(groups);
-            if (index < 0) {
-                return;
-            }
-            Object group = groups.get(index);
-            Object item = buildItem(context);
-            if (item == null) {
-                return;
-            }
-            if (!appendItem(group, item)) {
-                return;
-            }
-            INJECTED.put(adapter, Boolean.TRUE);
-            XposedHelpers.callMethod(adapter, "notifyItemChanged", index);
-            FbaLog.i("mine entry injected into group " + index);
         } catch (Throwable t) {
             FbaLog.e("mine entry inject failed", t);
         }
+    }
+
+    /** Re-applies the entry before every bind, so data refreshes keep it. */
+    private static void hookBind(final Object adapter) {
+        final Class<?> type = adapter.getClass();
+        if (HOOKED.contains(type)) {
+            return;
+        }
+        HOOKED.add(type);
+        try {
+            XposedBridge.hookAllMethods(type, "onBindViewHolder", new XC_MethodHook() {
+                @Override
+                protected void beforeHookedMethod(MethodHookParam param) {
+                    try {
+                        Object self = param.thisObject;
+                        if (self == null) {
+                            return;
+                        }
+                        long now = System.currentTimeMillis();
+                        if (now - lastEnsureAt < 400L) {
+                            return;
+                        }
+                        lastEnsureAt = now;
+                        ensure(self, false);
+                    } catch (Throwable ignore) {
+                        // never disturb the list
+                    }
+                }
+            });
+            FbaLog.i("mine adapter bound: " + type.getName());
+        } catch (Throwable t) {
+            FbaLog.e("mine bind hook failed", t);
+        }
+    }
+
+    private static final java.util.Set<Class<?>> HOOKED =
+            java.util.Collections.newSetFromMap(new java.util.WeakHashMap<Class<?>, Boolean>());
+    private static long lastEnsureAt;
+
+    /**
+     * Makes sure the entry exists in the target group.
+     *
+     * @param notify whether to call {@code notifyItemChanged} (not safe inside bind)
+     */
+    private static boolean ensure(Object adapter, boolean notify) {
+        List<Object> groups = menuGroups(adapter);
+        if (groups == null || groups.isEmpty()) {
+            return false;
+        }
+        if (containsOurItem(groups)) {
+            return true;
+        }
+        int index = pickGroup(groups);
+        if (index < 0) {
+            return false;
+        }
+        Object group = groups.get(index);
+        Object item = buildItem(FbaRuntime.context());
+        if (item == null) {
+            return false;
+        }
+        if (!appendItem(group, item)) {
+            return false;
+        }
+        if (notify) {
+            try {
+                XposedHelpers.callMethod(adapter, "notifyItemChanged", index);
+            } catch (Throwable t) {
+                FbaLog.d("notifyItemChanged failed: " + t);
+            }
+        }
+        return true;
     }
 
     private static Object findAdapter(View root) {
@@ -320,6 +384,9 @@ public final class MineServiceEntry {
     }
 
     private static Object buildItem(Context context) {
+        if (context == null) {
+            return null;
+        }
         try {
             ClassLoader cl = context.getClassLoader();
             Class<?> itemClass = XposedHelpers.findClass(ITEM, cl);
@@ -371,7 +438,7 @@ public final class MineServiceEntry {
                         field.setLong(target, ((Number) value).longValue());
                     } else if (type == int.class && value instanceof Number) {
                         field.setInt(target, ((Number) value).intValue());
-                    } else if (type == String.class) {
+                    } else if (!type.isPrimitive()) {
                         field.set(target, value);
                     }
                     return;

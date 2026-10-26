@@ -25,6 +25,7 @@ import com.fuck.bili.ads.settings.FollowingTopLeftButton;
 import com.fuck.bili.ads.story.StoryAdSniper;
 import com.fuck.bili.ads.ui.FbaLog;
 import com.fuck.bili.ads.ui.FbaPrefs;
+import com.fuck.bili.ads.ui.FbaRuntime;
 import com.fuck.bili.ads.ui.MineServiceEntry;
 import com.fuck.bili.ads.ui.StoryShareMark;
 
@@ -51,7 +52,8 @@ public class MainHook implements IXposedHookLoadPackage {
         // Settings + event log live in the host process (the UI is opened from 更多服务).
         FbaLog.init(AndroidAppHelper.currentApplication());
         FbaPrefs.init(AndroidAppHelper.currentApplication());
-        FbaLog.i("module loaded for " + lpparam.packageName);
+        FbaLog.i("module load start: pkg=" + lpparam.packageName
+                + " process=" + FbaRuntime.processName());
 
         try {
             System.loadLibrary("dexkit");
@@ -60,12 +62,16 @@ public class MainHook implements IXposedHookLoadPackage {
         }
 
 
-        DexKitHelper helper = new DexKitHelper();
-        helper.resolve(lpparam);
+        final DexKitHelper helper = new DexKitHelper();
+        try {
+            helper.resolve(lpparam);
+        } catch (Throwable t) {
+            FbaLog.e("[HOOK FAIL] DexKit resolve", t);
+        }
 
         log("开始执行业务 Hook 逻辑...");
-        executeOriginalHooks(lpparam, helper);
-        BiliCardAdSniper.hook(lpparam.classLoader, helper);
+        install("基础 Hook", () -> executeOriginalHooks(lpparam, helper));
+        install("广告卡片", () -> BiliCardAdSniper.hook(lpparam.classLoader, helper));
 
         // ---- 新增：版本号检测逻辑 ----
         boolean shouldRunDescCopyFix = true;
@@ -88,29 +94,44 @@ public class MainHook implements IXposedHookLoadPackage {
         } catch (Throwable t) {
             log("获取宿主版本号失败，将默认执行 descCopyFix: " + t.getMessage());
         }
-        BiliAdSniper.hook(lpparam.classLoader);
-        BiliSplashSniper.hook(lpparam.classLoader, helper);
-        BiliMentionedSniper.hook(lpparam.classLoader, helper);
-        BiliBottomNavSniper.hook(lpparam.classLoader);
-        GlobalAdSniperEngine.hook(lpparam.classLoader, helper);
-        PacketSniffer.hook(lpparam.classLoader);
-        VIPPredict.hook(lpparam.classLoader, helper);
-        LiveRoomAdSniper.hook(lpparam.classLoader, helper);
-        FreeDataToastSniper.hook(lpparam.classLoader, helper);
-        DanmuJump.hook(lpparam.classLoader);
-        FollowingListAdSniper.hook(lpparam.classLoader);
-        FollowingTopLeftButton.hook(lpparam.classLoader);
-        StoryAdSniper.hook(lpparam.classLoader);
-        MineServiceEntry.hook(lpparam.classLoader);
-        StoryShareMark.hook(lpparam.classLoader);
+        final XC_LoadPackage.LoadPackageParam param = lpparam;
+        install("播放页广告", () -> BiliAdSniper.hook(param.classLoader));
+        install("开屏广告", () -> BiliSplashSniper.hook(param.classLoader, helper));
+        install("视频提及", () -> BiliMentionedSniper.hook(param.classLoader, helper));
+        install("底部导航", () -> BiliBottomNavSniper.hook(param.classLoader));
+        install("全局广告", () -> GlobalAdSniperEngine.hook(param.classLoader, helper));
+        install("抓包", () -> PacketSniffer.hook(param.classLoader));
+        install("大会员预测", () -> VIPPredict.hook(param.classLoader, helper));
+        install("直播间广告", () -> LiveRoomAdSniper.hook(param.classLoader, helper));
+        install("免流提示", () -> FreeDataToastSniper.hook(param.classLoader, helper));
+        install("弹幕跳转", () -> DanmuJump.hook(param.classLoader));
+        install("关注页广告", () -> FollowingListAdSniper.hook(param.classLoader));
+        install("关注页设置", () -> FollowingTopLeftButton.hook(param.classLoader));
+        install("小视频", () -> StoryAdSniper.hook(param.classLoader));
+        install("设置入口", () -> MineServiceEntry.hook(param.classLoader));
+        install("分享标记", () -> StoryShareMark.hook(param.classLoader));
 //        VipJsonTestHook.hook(lpparam.classLoader);
 //        EffectiveVipTesting.hook(lpparam.classLoader);
 
 
         if (shouldRunDescCopyFix) {
-            descCopyFix(lpparam, helper);
+            install("简介复制", () -> descCopyFix(param, helper));
         } else {
             log("宿主版本号小于 8.9.0(8090300)，跳过 descCopyFix 逻辑。");
+        }
+
+        FbaLog.i("[BOOT] hooks done: " + FbaRuntime.summary());
+        // Announce load status once the process is far enough along to toast.
+        FbaRuntime.announce(2500L);
+    }
+
+    /** Runs one feature's hook installer in isolation: one failure must not stop the rest. */
+    private static void install(String name, Runnable action) {
+        try {
+            action.run();
+        } catch (Throwable t) {
+            FbaLog.e("[HOOK FAIL] " + name, t);
+            FbaRuntime.mark(name, false);
         }
     }
 
@@ -303,5 +324,6 @@ public class MainHook implements IXposedHookLoadPackage {
         if (IS_DEBUG) {
             Log.d(TAG, msg);
         }
+        FbaLog.d(msg);
     }
 }

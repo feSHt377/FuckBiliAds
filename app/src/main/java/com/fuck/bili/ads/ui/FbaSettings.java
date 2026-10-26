@@ -33,6 +33,7 @@ import android.widget.Toast;
 
 import com.fuck.bili.ads.story.StoryAdSniper;
 import com.fuck.bili.ads.story.StoryDebug;
+import com.fuck.bili.ads.story.StoryDiag;
 
 import java.io.File;
 import java.io.FileOutputStream;
@@ -135,6 +136,16 @@ public final class FbaSettings {
             content.addView(actionRow(context, "测试宿主 Toast",
                     "验证 ToastHelper 是否可用",
                     titleColor, subColor, divider, v -> testToast(context)));
+
+            // ---- 诊断 ----
+            content.addView(section(context, "诊断", subColor));
+            content.addView(infoRow(context, "模块状态", FbaRuntime.summary(), titleColor, subColor, divider));
+            content.addView(infoRow(context, "小视频扫描", StoryDiag.describe(), titleColor, subColor, divider));
+            content.addView(infoRow(context, "日志落盘", FbaLog.fileOk() ? "正常" : ("失败：" + FbaLog.lastError()),
+                    titleColor, subColor, divider));
+            content.addView(actionRow(context, "播报模块状态",
+                    "立即用 Toast 显示各功能安装结果",
+                    titleColor, subColor, divider, v -> FbaRuntime.toastNow("FuckBiliAds · " + FbaRuntime.summary())));
 
             // ---- 日志 ----
             content.addView(section(context, "日志", subColor));
@@ -365,7 +376,7 @@ public final class FbaSettings {
     }
 
     private static void showLog(Context context, boolean night, int bg, int titleColor, int subColor) {
-        String content = FbaLog.read();
+        String content = logText();
         if (content.isEmpty()) {
             Toast.makeText(context, "暂无日志", Toast.LENGTH_SHORT).show();
             return;
@@ -421,8 +432,24 @@ public final class FbaSettings {
         }
     }
 
+    /** Current-run ring buffer first, then the persistent file, both tail limited. */
+    private static String logText() {
+        String recent = FbaLog.recent();
+        String file = FbaLog.read();
+        StringBuilder sb = new StringBuilder();
+        if (!recent.isEmpty()) {
+            sb.append("=== 本次运行 ===\n").append(recent);
+        }
+        if (!file.isEmpty()) {
+            sb.append("\n=== 历史日志 ===\n").append(file);
+        }
+        String all = sb.toString();
+        int limit = 300 * 1024;
+        return all.length() > limit ? all.substring(all.length() - limit) : all;
+    }
+
     private static void exportLog(Context context) {
-        String content = FbaLog.read();
+        String content = logText();
         if (content.isEmpty()) {
             Toast.makeText(context, "暂无日志", Toast.LENGTH_SHORT).show();
             return;
@@ -512,7 +539,7 @@ public final class FbaSettings {
     // ------------------------------------------------------------------ util
 
     private static String lineCountHint(Context context) {
-        String content = FbaLog.read();
+        String content = logText();
         if (content.isEmpty()) {
             return "暂无日志";
         }
@@ -530,7 +557,7 @@ public final class FbaSettings {
             return context.getPackageManager()
                     .getPackageInfo("com.fuck.bili.ads", 0).versionName;
         } catch (Throwable t) {
-            return "1.0.3";
+            return "1.0.4";
         }
     }
 

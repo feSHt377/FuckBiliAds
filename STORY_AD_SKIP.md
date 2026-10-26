@@ -284,3 +284,24 @@ adb logcat -s FuckBiliAds
 | `story: ad detected at pos N id=c...` | 判定命中 |
 | `story ad skipped at pos N` | 已下发滚动 |
 | `story: skip did not advance, retry N` | 滚动没生效，正在降级重试 |
+
+
+---
+
+# 第五部分 · 9.16.1 适配（1.0.4）
+
+9.16.1 的混淆重排把上一版依赖的类名全部换掉，实测表现为「入口闪一下就没了 / 分享面板没有按钮 / 看不到日志 / 广告不跳」。
+本轮把三处「认类名」改成了「认结构」：
+
+| 位置 | 9.15 | 9.16.1 | 1.0.4 的做法 |
+|---|---|---|---|
+| 分享控制器 | `story.action.r0` | `story.action.k0` | 不认控制器：锚在 `StoryActionHelper` 的 `(StoryDetail, StoryShareFrom) -> String` **方法签名**上 |
+| 列表适配器 | `story.L`（普通 RecyclerView） | `story.X`（ViewPager2 内在 RecyclerView） | 选「adapter 的 List 字段里有 `adInfo`+`adType` 对象」的 RecyclerView |
+| 卡片 ViewHolder | 直接持有 `StoryDetail` | `v0` 只持有 `StoryAbsController` | 在 ViewHolder 字段里按「有无 `adInfo` 字段」递归搜索，取不到再退回 adapter 列表 |
+
+另外两处行为修正：
+
+- **更多服务入口消失**：9.16 的我的页会静默刷新并重建 `MenuGroup`，一次性注入会被丢弃。改为在适配器 `onBindViewHolder` 前补齐，并在每次 `onResume` 后保留 10 秒重试窗口。
+- **日志缺失**：不再只依赖 `AndroidAppHelper` 取 Context（LSPatch 下可能拿不到），改为 `AndroidAppHelper → ActivityThread.currentApplication()` 多级回退，并增加内存环形缓冲，设置页同时展示「本次运行」与「历史日志」。
+
+排查入口依旧在设置页「诊断」：`小视频扫描` 一行直接给出 `rv / adapter / pos / item / adInfo`，`日志落盘` 显示文件是否可写。

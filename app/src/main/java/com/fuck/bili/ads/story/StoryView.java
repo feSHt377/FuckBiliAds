@@ -15,33 +15,22 @@ import java.util.List;
 /**
  * Read-only helpers for the vertical short-video page (故事模式 / 小视频).
  *
- * <p>The story list is a {@link android.view.ViewGroup} whose class extends
- * {@code androidx.recyclerview.widget.RecyclerView}. The card currently on
- * screen is the child that covers the largest visible area — never "the item
- * that was bound last", because the adapter pre-binds several off-screen pages.
- *
- * <p>Every reflective lookup here must be tolerant: host builds rename classes,
- * wrap the adapter, and the runtime view type is a subclass of the declared
- * parameter type. Method lookup therefore matches by name + arity + assignable
- * parameter types instead of exact {@code Class} equality.
+ * <p>Host builds shuffle class names on every release (the story adapter was
+ * {@code L} in 9.15, {@code X} in 9.16, the holder changed too), so nothing in
+ * here matches a class <em>name</em> when it can match a class <em>shape</em>:
+ * a card model is any object owning an {@code adInfo} field, and the list is
+ * the RecyclerView whose adapter holds such objects.
  */
 final class StoryView {
 
     private static final String RV_CLASS = "androidx.recyclerview.widget.RecyclerView";
-    private static final String STORY_PKG = "com.bilibili.video.story";
-    private static final String VIEWPAGER2_PKG = "androidx.viewpager2";
 
     private StoryView() {
     }
 
     /**
-     * Finds the story list inside the activity.
-     *
-     * <p>Preference order: a RecyclerView whose adapter lives in
-     * {@code com.bilibili.video.story} (that is the probed adapter), then any
-     * RecyclerView that is not the hosting ViewPager2, picking the one whose
-     * visible child covers the most screen area so nested lists (comments,
-     * action bar) never win.
+     * Picks the story list: the RecyclerView whose adapter carries card models,
+     * falling back to the largest one on screen.
      */
     static ViewGroup findRecycler(Activity activity) {
         if (activity == null) {
@@ -51,31 +40,30 @@ final class StoryView {
             List<ViewGroup> candidates = new ArrayList<>();
             collect(activity.getWindow().getDecorView(), candidates);
 
-            ViewGroup bestStory = null;
-            long bestStoryArea = -1;
-            ViewGroup bestOther = null;
-            long bestOtherArea = -1;
+            ViewGroup best = null;
+            long bestScore = -1;
             for (int i = 0; i < candidates.size(); i++) {
                 ViewGroup rv = candidates.get(i);
                 Object adapter = adapterOf(rv);
                 if (adapter == null) {
                     continue;
                 }
-                String name = adapter.getClass().getName();
-                long area = dominantArea(rv);
-                if (name.startsWith(STORY_PKG)) {
-                    if (area > bestStoryArea) {
-                        bestStoryArea = area;
-                        bestStory = rv;
-                    }
-                } else if (!name.startsWith(VIEWPAGER2_PKG)) {
-                    if (area > bestOtherArea) {
-                        bestOtherArea = area;
-                        bestOther = rv;
+                long score = dominantArea(rv);
+                if (holdsStoryItems(adapter)) {
+                    // The real pager: its adapter list is full of card models.
+                    score += 1L << 40;
+                } else {
+                    Object holderItem = itemOfHolder(rv, dominantChild(rv));
+                    if (holderItem != null) {
+                        score += 1L << 30;
                     }
                 }
+                if (score > bestScore) {
+                    bestScore = score;
+                    best = rv;
+                }
             }
-            return bestStory != null ? bestStory : bestOther;
+            return best;
         } catch (Throwable t) {
             return null;
         }
@@ -164,32 +152,32 @@ final class StoryView {
         return pos instanceof Integer ? (Integer) pos : -1;
     }
 
-    /**
-     * The item backing the dominant child.
-     *
-     * <p>Primary source is the item held by the child's ViewHolder (that object
-     * is what {@code bindViewHolder} received during probing); the adapter's
-     * backing list is only a fallback because its index space does not have to
-     * match adapter positions (headers, wrapped adapters).
-     */
+    /** The card model backing the dominant child, {@code null} when unknown. */
     static Object itemOf(ViewGroup rv, View child) {
         if (rv == null || child == null) {
             return null;
         }
-        Object item = storyItemOf(call(rv, "getChildViewHolder", child));
+        Object item = itemOfHolder(rv, child);
         if (item != null) {
             return item;
         }
         return findItem(adapterOf(rv), adapterPosition(rv, child));
     }
 
-    /** Finds a story model instance among the ViewHolder's fields. */
-    private static Object storyItemOf(Object holder) {
-        if (holder == null) {
+    /** Looks for the card model inside the child's ViewHolder (depth limited). */
+    private static Object itemOfHolder(ViewGroup rv, View child) {
+        if (rv == null || child == null) {
             return null;
         }
-        Object fallback = null;
-        for (Class<?> c = holder.getClass(); c != null && c != Object.class; c = c.getSuperclass()) {
+        Object holder = call(rv, "getChildViewHolder", child);
+        return searchItem(holder, 2);
+    }
+
+    private static Object searchItem(Object target, int depth) {
+        if (target == null || depth < 0) {
+            return null;
+        }
+        for (Class<?> c = target.getClass(); c != null && c != Object.class; c = c.getSuperclass()) {
             Field[] fields = c.getDeclaredFields();
             for (Field f : fields) {
                 if (f.isSynthetic() || Modifier.isStatic(f.getModifiers())) {
@@ -198,22 +186,38 @@ final class StoryView {
                 Object value;
                 try {
                     f.setAccessible(true);
-                    value = f.get(holder);
+                    value = f.get(target);
                 } catch (Throwable ignore) {
                     continue;
                 }
-                if (value == null || !isStoryModel(value.getClass().getName())) {
+                if (value == null) {
                     continue;
                 }
-                if (hasField(value.getClass(), "adInfo")) {
+                if (isStoryItem(value)) {
                     return value;
                 }
-                if (fallback == null) {
-                    fallback = value;
+                String name = value.getClass().getName();
+                if (depth > 0 && (name.startsWith("com.bilibili.") || name.startsWith("tv.danmaku."))) {
+                    Object nested = searchItem(value, depth - 1);
+                    if (nested != null) {
+                        return nested;
+                    }
                 }
             }
         }
-        return fallback;
+        return null;
+    }
+
+    /** A story card model: owns {@code adInfo} (ads) and {@code adType}. */
+    static boolean isStoryItem(Object value) {
+        if (value == null) {
+            return false;
+        }
+        Class<?> c = value.getClass();
+        if (c.isPrimitive() || c.isArray() || value instanceof CharSequence) {
+            return false;
+        }
+        return hasField(c, "adInfo") && hasField(c, "adType");
     }
 
     private static boolean hasField(Class<?> c, String name) {
@@ -223,6 +227,34 @@ final class StoryView {
                 return true;
             } catch (Throwable ignore) {
                 // keep walking
+            }
+        }
+        return false;
+    }
+
+    /** True when the adapter keeps a list of card models (not a header/pager list). */
+    private static boolean holdsStoryItems(Object adapter) {
+        for (Class<?> c = adapter.getClass(); c != null && c != Object.class; c = c.getSuperclass()) {
+            Field[] fields = c.getDeclaredFields();
+            for (Field f : fields) {
+                if (f.isSynthetic() || Modifier.isStatic(f.getModifiers())) {
+                    continue;
+                }
+                try {
+                    f.setAccessible(true);
+                    Object value = f.get(adapter);
+                    if (!(value instanceof List)) {
+                        continue;
+                    }
+                    List<?> list = (List<?>) value;
+                    for (int i = 0; i < Math.min(list.size(), 5); i++) {
+                        if (isStoryItem(list.get(i))) {
+                            return true;
+                        }
+                    }
+                } catch (Throwable ignore) {
+                    // next field
+                }
             }
         }
         return false;
@@ -253,10 +285,7 @@ final class StoryView {
         return value != null ? value : call(obj, "is" + cap);
     }
 
-    /**
-     * Best-effort lookup of the item at {@code pos}: scans the adapter's own
-     * List / array fields (read-only reflection) and only accepts story models.
-     */
+    /** Best-effort lookup of the card model at {@code pos}. */
     static Object findItem(Object adapter, int pos) {
         if (adapter == null || pos < 0) {
             return null;
@@ -286,21 +315,10 @@ final class StoryView {
 
     private static Object storyElementAt(Object value, int pos) {
         Object item = elementAt(value, pos);
-        if (item != null && isStoryModel(item.getClass().getName())) {
+        if (isStoryItem(item)) {
             return item;
         }
         return null;
-    }
-
-    /**
-     * True for the story feature's own model types. The exact package is the
-     * probed one; the other two checks keep working after a host refactor that
-     * only renames the package (the model name itself stays "StoryDetail").
-     */
-    private static boolean isStoryModel(String className) {
-        return className.startsWith(STORY_PKG)
-                || className.endsWith("StoryDetail")
-                || className.contains(".story.");
     }
 
     private static Object elementAt(Object value, int pos) {

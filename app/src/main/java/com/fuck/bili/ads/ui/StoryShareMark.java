@@ -15,9 +15,11 @@ import android.widget.FrameLayout;
 import android.widget.TextView;
 import android.widget.Toast;
 
+import com.fuck.bili.ads.story.StoryAdSniper;
 import com.fuck.bili.ads.story.StoryDebug;
 
-import java.lang.reflect.Field;
+import java.lang.reflect.Method;
+import java.lang.reflect.Modifier;
 import java.util.Map;
 import java.util.WeakHashMap;
 
@@ -28,17 +30,25 @@ import de.robv.android.xposed.XposedHelpers;
 /**
  * "标记广告" chip shown together with the story share sheet.
  *
- * <p>The share sheet is Compose-based, so instead of injecting a row into a
- * composition this adds one framework view to the activity decor while the
- * panel is open and removes it when the share session is dismissed.
+ * <p>The share sheet is Compose-based and its controller class is obfuscated and
+ * renamed on every release ({@code r0} in 9.15, {@code k0} in 9.16). The chip is
+ * therefore triggered from a stable, name-cheap anchor: the static share-content
+ * builder {@code StoryActionHelper} (matched by method signature, not by name),
+ * and it is attached to the topmost window so it stays visible above a dialog
+ * based panel.
  */
 public final class StoryShareMark {
 
-    private static final String TAG = "FuckBiliAds";
-    private static final String CONTROLLER = "com.bilibili.video.story.action.r0";
-    private static final String COORDINATOR = "kntr.common.share.api.session.ShareSessionCoordinator";
+    private static final String TAG = FbaRuntime.TAG;
 
-    private static final String CHIP_TAG = "fuckbiliads.mark.v1";
+    private static final String ACTION_HELPER = "com.bilibili.video.story.helper.StoryActionHelper";
+    private static final String COORDINATOR = "kntr.common.share.api.session.ShareSessionCoordinator";
+    private static final String[] CONTROLLERS = {
+            "com.bilibili.video.story.action.k0",
+            "com.bilibili.video.story.action.r0"
+    };
+
+    private static final String CHIP_TAG = "fuckbiliads.mark.v2";
     private static final int CHIP_BG = 0xF2FB7299;
 
     private static final Map<Activity, View> CHIPS = new WeakHashMap<>();
@@ -47,89 +57,86 @@ public final class StoryShareMark {
     }
 
     public static void hook(ClassLoader classLoader) {
-        hookController(classLoader);
-        hookDismiss(classLoader);
+        boolean helper = hookActionHelper(classLoader);
+        boolean controller = hookControllers(classLoader);
+        boolean dismiss = hookDismiss(classLoader);
         hookPause();
-        FbaLog.i("share mark hook installed");
+        FbaRuntime.mark("分享标记", helper);
+        FbaLog.i("share mark hooks: helper=" + helper + " controller=" + controller
+                + " dismiss=" + dismiss);
     }
 
-    private static void hookController(ClassLoader classLoader) {
-        final Class<?> controller;
+    /**
+     * Hooks the static {@code (StoryDetail, StoryShareFrom) -> String} builder.
+     * Matching by signature keeps working when the method name changes.
+     */
+    private static boolean hookActionHelper(ClassLoader classLoader) {
         try {
-            controller = XposedHelpers.findClass(CONTROLLER, classLoader);
-        } catch (Throwable t) {
-            FbaLog.e("share mark controller missing", t);
-            return;
-        }
-        // n(...) is the story share entry: attach the chip.
-        try {
-            XposedBridge.hookAllMethods(controller, "n", new XC_MethodHook() {
-                @Override
-                protected void afterHookedMethod(MethodHookParam param) {
-                    try {
-                        Activity activity = findActivity(param.thisObject);
-                        if (activity != null) {
-                            showChip(activity);
-                        }
-                    } catch (Throwable ignore) {
-                        // never disturb the host
-                    }
+            Class<?> helper = XposedHelpers.findClass(ACTION_HELPER, classLoader);
+            for (final Method method : helper.getDeclaredMethods()) {
+                if (!Modifier.isStatic(method.getModifiers())) {
+                    continue;
                 }
-            });
-        } catch (Throwable t) {
-            FbaLog.e("share mark n() hook failed", t);
-        }
-        // j(...) returns the panel content: use it to sit right above the sheet.
-        try {
-            XposedBridge.hookAllMethods(controller, "j", new XC_MethodHook() {
-                @Override
-                protected void afterHookedMethod(MethodHookParam param) {
-                    try {
-                        final Activity activity = findActivity(param.thisObject);
-                        if (activity == null) {
-                            return;
-                        }
-                        Object result = param.getResult();
-                        if (!(result instanceof View)) {
-                            showChip(activity);
-                            return;
-                        }
-                        final View panel = (View) result;
-                        panel.post(() -> align(activity, panel));
-                    } catch (Throwable ignore) {
-                        // never disturb the host
-                    }
+                Class<?>[] params = method.getParameterTypes();
+                if (params.length != 2) {
+                    continue;
                 }
-            });
-        } catch (Throwable t) {
-            FbaLog.e("share mark j() hook failed", t);
-        }
-    }
-
-    /** Moves the chip to just above the share panel's top edge. */
-    private static void align(Activity activity, View panel) {
-        View chip = activity == null ? null : CHIPS.get(activity);
-        if (chip == null || chip.getParent() == null) {
-            return;
-        }
-        try {
-            int[] location = new int[2];
-            panel.getLocationOnScreen(location);
-            int top = location[1];
-            int minTop = statusBarHeight(activity) + dp(activity, 24);
-            if (top <= minTop) {
-                return;
+                if (!params[0].getName().endsWith("StoryDetail")
+                        || !params[1].getName().endsWith("StoryShareFrom")) {
+                    continue;
+                }
+                XposedBridge.hookMethod(method, new XC_MethodHook() {
+                    @Override
+                    protected void afterHookedMethod(MethodHookParam param) {
+                        try {
+                            Activity activity = storyActivity();
+                            if (activity != null) {
+                                showChip(activity);
+                            }
+                        } catch (Throwable ignore) {
+                            // never disturb the host
+                        }
+                    }
+                });
+                FbaLog.i("share mark anchored on " + method.getDeclaringClass().getName()
+                        + "." + method.getName());
+                return true;
             }
-            int chipHeight = chip.getHeight() > 0 ? chip.getHeight() : dp(activity, 30);
-            FrameLayout.LayoutParams params = (FrameLayout.LayoutParams) chip.getLayoutParams();
-            params.topMargin = Math.max(minTop, top - chipHeight - dp(activity, 8));
-            chip.setLayoutParams(params);
-        } catch (Throwable ignore) {
-            // keep the default position
+            FbaLog.w("share mark: no share builder found in " + helper.getName());
+            return false;
+        } catch (Throwable t) {
+            FbaLog.e("share mark: helper missing", t);
+            return false;
         }
     }
 
-    private static void hookDismiss(ClassLoader classLoader) {
+    private static boolean hookControllers(ClassLoader classLoader) {
+        boolean any = false;
+        for (String name : CONTROLLERS) {
+            try {
+                Class<?> controller = XposedHelpers.findClass(name, classLoader);
+                XposedBridge.hookAllMethods(controller, "n", new XC_MethodHook() {
+                    @Override
+                    protected void afterHookedMethod(MethodHookParam param) {
+                        try {
+                            Activity activity = storyActivity();
+                            if (activity != null) {
+                                showChip(activity);
+                            }
+                        } catch (Throwable ignore) {
+                            // never disturb the host
+                        }
+                    }
+                });
+                any = true;
+            } catch (Throwable ignore) {
+                // class renamed in this build
+            }
+        }
+        return any;
+    }
+
+    private static boolean hookDismiss(ClassLoader classLoader) {
         try {
             Class<?> coordinator = XposedHelpers.findClass(COORDINATOR, classLoader);
             XposedBridge.hookAllMethods(coordinator, "b", new XC_MethodHook() {
@@ -138,8 +145,10 @@ public final class StoryShareMark {
                     hideAll();
                 }
             });
+            return true;
         } catch (Throwable t) {
-            FbaLog.e("share mark dismiss hook failed", t);
+            FbaLog.d("share dismiss hook skipped: " + t);
+            return false;
         }
     }
 
@@ -153,27 +162,23 @@ public final class StoryShareMark {
                     }
                 }
             });
-        } catch (Throwable t) {
-            FbaLog.e("share mark pause hook failed", t);
+        } catch (Throwable ignore) {
+            // framework hooks may be unavailable
         }
     }
 
-    private static Activity findActivity(Object target) {
-        for (Class<?> c = target.getClass(); c != null && c != Object.class; c = c.getSuperclass()) {
-            for (Field field : c.getDeclaredFields()) {
-                try {
-                    if (java.lang.reflect.Modifier.isStatic(field.getModifiers())) {
-                        continue;
-                    }
-                    field.setAccessible(true);
-                    Object value = field.get(target);
-                    if (value instanceof Activity) {
-                        return (Activity) value;
-                    }
-                } catch (Throwable ignore) {
-                    // next field
-                }
-            }
+    private static Activity storyActivity() {
+        Activity activity = StoryAdSniper.currentActivity();
+        if (activity != null && !activity.isFinishing()) {
+            return activity;
+        }
+        Activity top = FbaRuntime.topActivity();
+        if (top == null) {
+            return null;
+        }
+        String name = top.getClass().getName();
+        if (name.contains("story") || name.contains("Story")) {
+            return top;
         }
         return null;
     }
@@ -186,7 +191,10 @@ public final class StoryShareMark {
             return;
         }
         try {
-            final ViewGroup decor = (ViewGroup) activity.getWindow().getDecorView();
+            ViewGroup container = FbaRuntime.topWindow();
+            if (container == null) {
+                container = (ViewGroup) activity.getWindow().getDecorView();
+            }
             final TextView chip = new TextView(activity);
             chip.setTag(CHIP_TAG);
             chip.setText("标记广告");
@@ -213,19 +221,58 @@ public final class StoryShareMark {
                 return true;
             });
 
-            FrameLayout.LayoutParams params = new FrameLayout.LayoutParams(
-                    ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-            params.gravity = Gravity.TOP | Gravity.END;
-            params.topMargin = statusBarHeight(activity) + dp(activity, 56);
-            params.rightMargin = dp(activity, 12);
-            decor.addView(chip, params);
+            container.addView(chip, layoutParams(activity));
             CHIPS.put(activity, chip);
+            keepOnTop(activity, chip);
             // Safety net: never leave an orphan overlay behind.
             chip.postDelayed(() -> hide(activity), 120_000L);
-            FbaLog.i("share mark chip shown");
+            FbaLog.i("share mark chip shown in " + container.getClass().getName());
         } catch (Throwable t) {
             FbaLog.e("show share mark chip failed", t);
         }
+    }
+
+    private static FrameLayout.LayoutParams layoutParams(Activity activity) {
+        FrameLayout.LayoutParams params = new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        params.gravity = Gravity.TOP | Gravity.END;
+        params.topMargin = statusBarHeight(activity) + dp(activity, 52);
+        params.rightMargin = dp(activity, 12);
+        return params;
+    }
+
+    /**
+     * The share panel may open in its own dialog window after the trigger ran.
+     * Keep moving the chip onto whatever window is currently on top.
+     */
+    private static void keepOnTop(final Activity activity, final View chip) {
+        final android.os.Handler handler = FbaRuntime.handler();
+        if (handler == null) {
+            return;
+        }
+        final Runnable[] holder = new Runnable[1];
+        holder[0] = new Runnable() {
+            @Override
+            public void run() {
+                if (CHIPS.get(activity) != chip) {
+                    return;
+                }
+                try {
+                    ViewGroup top = FbaRuntime.topWindow();
+                    if (top != null && chip.getParent() != top) {
+                        if (chip.getParent() instanceof ViewGroup) {
+                            ((ViewGroup) chip.getParent()).removeView(chip);
+                        }
+                        top.addView(chip, layoutParams(activity));
+                        FbaLog.d("share mark chip moved to " + top.getClass().getName());
+                    }
+                } catch (Throwable ignore) {
+                    // keep trying
+                }
+                handler.postDelayed(holder[0], 400L);
+            }
+        };
+        handler.postDelayed(holder[0], 400L);
     }
 
     private static void hide(Activity activity) {

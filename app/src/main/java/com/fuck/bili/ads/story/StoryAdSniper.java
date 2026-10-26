@@ -3,6 +3,7 @@ package com.fuck.bili.ads.story;
 import android.app.Activity;
 import android.content.Context;
 import android.content.ContextWrapper;
+import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
 import android.util.Log;
@@ -11,6 +12,7 @@ import android.view.ViewGroup;
 
 import com.fuck.bili.ads.ui.FbaLog;
 import com.fuck.bili.ads.ui.FbaPrefs;
+import com.fuck.bili.ads.ui.FbaRuntime;
 
 import java.lang.reflect.Method;
 import java.util.HashMap;
@@ -31,6 +33,10 @@ import de.robv.android.xposed.XposedHelpers;
  * <p>The page is polled instead of hooking a "current item changed" callback:
  * the list is a snap RecyclerView, and the visible card is the only thing that
  * matters. Every operation is read-only except the scroll to the next card.
+ *
+ * <p>Session start prefers hooks on the host's own activity class (works on
+ * every loader, including LSPatch) and only then falls back to framework
+ * lifecycle hooks.
  */
 public final class StoryAdSniper {
 
@@ -41,6 +47,7 @@ public final class StoryAdSniper {
 
     private static final String STORY_ACTIVITY = "com.bilibili.video.story.StoryVideoActivity";
     private static final String STORY_PKG_PREFIX = "com.bilibili.video.story.";
+    private static final String RV_CLASS = "androidx.recyclerview.widget.RecyclerView";
 
     private static final long POLL_MS = 400L;
     private static final long COOLDOWN_MS = 700L;
@@ -54,12 +61,11 @@ public final class StoryAdSniper {
     private static final int MAX_SKIPS_PER_WINDOW = 12;
     private static final long WINDOW_MS = 15_000L;
 
-    /** Story page class resolved from the host; null means "match by package". */
+    /** Story page class resolved from the host; null means "match by name". */
     private static Class<?> storyActivity;
 
     private static volatile boolean ready;
-
-    private static StoryAdSniper.Host current;
+    private static volatile Host current;
 
     private StoryAdSniper() {
     }
@@ -70,104 +76,131 @@ public final class StoryAdSniper {
             resolved = XposedHelpers.findClass(STORY_ACTIVITY, classLoader);
         } catch (Throwable t) {
             // Host renamed the page: keep working through the package prefix.
-            Log.d(TAG, "story: page class missing, matching by package");
+            FbaLog.w("story: page class missing, matching by name");
         }
         storyActivity = resolved;
 
-        // performResume/performPause are the framework-side lifecycle entry points,
-        // onResume/onPause cover hosts that drive the page through a fragment.
-        hookActivityMethod("performResume", true);
-        hookActivityMethod("onResume", true);
-        hookActivityMethod("performPause", false);
-        hookActivityMethod("onPause", false);
-        hookActivityMethod("performDestroy", false);
-        hookRecyclerAttach(classLoader);
+        boolean appLifecycle = hookAppLifecycle(classLoader);
+        boolean frameworkLifecycle = hookFrameworkLifecycle();
+        boolean attach = hookRecyclerAttach(classLoader);
+        ready = appLifecycle || frameworkLifecycle || attach;
 
-        ready = true;
-        FbaLog.i("story ad auto skip ready (page="
-                + (resolved == null ? "package-match" : resolved.getName()) + ")");
+        startWatchdog();
+        FbaRuntime.mark("小视频", ready);
+        FbaLog.i("story hooks: app=" + appLifecycle + " framework=" + frameworkLifecycle
+                + " attach=" + attach + " page="
+                + (resolved == null ? "name-match" : resolved.getName()));
     }
 
-    /** True once the story hooks are installed (shown in the settings panel). */
+    /**
+     * Loader-independent safety net: watches the foreground activity every two
+     * seconds, so a session starts even when no lifecycle hook fires (LSPatch,
+     * fragment-hosted pages, ...).
+     */
+    private static void startWatchdog() {
+        final android.os.Handler handler = FbaRuntime.handler();
+        if (handler == null) {
+            FbaLog.w("story: watchdog disabled (no main looper)");
+            return;
+        }
+        final Runnable[] holder = new Runnable[1];
+        holder[0] = new Runnable() {
+            @Override
+            public void run() {
+                try {
+                    Activity top = FbaRuntime.topActivity();
+                    if (top != null && !top.isFinishing()) {
+                        if (isStoryActivity(top)) {
+                            attach(top);
+                        } else if (current != null && current.activity != top) {
+                            detach(null);
+                        }
+                    }
+                } catch (Throwable ignore) {
+                    // keep watching
+                }
+                handler.postDelayed(holder[0], 2000L);
+            }
+        };
+        handler.postDelayed(holder[0], 2000L);
+    }
+
+    /** True once at least one trigger is installed (shown in the settings panel). */
     public static boolean isReady() {
         return ready;
     }
 
+    /** Activity of the running story session, used by the share-sheet marker. */
+    public static Activity currentActivity() {
+        Host host = current;
+        return host == null ? null : host.activity;
+    }
+
+    // ------------------------------------------------------------- hook triggers
+
     /**
-     * Fallback trigger: when the page is a fragment inside an already resumed
-     * activity, no lifecycle callback fires again. The story list attaching to
-     * the window is the point where a session can start.
+     * Hooks the host's own activity class. Resolves inherited methods, so it
+     * still lands on app code (and stays hookable under LSPatch).
      */
-    private static void hookRecyclerAttach(ClassLoader classLoader) {
+    private static boolean hookAppLifecycle(ClassLoader classLoader) {
+        Class<?> page = storyActivity;
+        if (page == null) {
+            try {
+                page = XposedHelpers.findClass(STORY_ACTIVITY, classLoader);
+            } catch (Throwable t) {
+                return false;
+            }
+        }
+        int installed = 0;
+        installed += hookApp(page, "onCreate", new Class<?>[]{Bundle.class}, true);
+        installed += hookApp(page, "onResume", new Class<?>[0], true);
+        installed += hookApp(page, "onPause", new Class<?>[0], false);
+        installed += hookApp(page, "onDestroy", new Class<?>[0], false);
+        return installed > 0;
+    }
+
+    private static int hookApp(Class<?> page, String method, Class<?>[] params, final boolean resume) {
         try {
-            final Class<?> recycler = XposedHelpers.findClass(
-                    "androidx.recyclerview.widget.RecyclerView", classLoader);
-            XC_MethodHook callback = new XC_MethodHook() {
+            Object[] args = new Object[params.length + 1];
+            System.arraycopy(params, 0, args, 0, params.length);
+            args[params.length] = new XC_MethodHook() {
                 @Override
                 protected void afterHookedMethod(MethodHookParam param) {
                     try {
-                        Object self = param.thisObject;
-                        if (!(self instanceof ViewGroup)) {
+                        if (!(param.thisObject instanceof Activity)) {
                             return;
                         }
-                        // The hook may land on View.onAttachedToWindow; ignore
-                        // everything that is not a RecyclerView.
-                        String name = self.getClass().getName();
-                        boolean isRecycler = name.equals("androidx.recyclerview.widget.RecyclerView");
-                        for (Class<?> c = self.getClass(); !isRecycler && c != null
-                                && c != Object.class; c = c.getSuperclass()) {
-                            isRecycler = "androidx.recyclerview.widget.RecyclerView".equals(c.getName());
-                        }
-                        if (!isRecycler) {
-                            return;
-                        }
-                        Object adapter = StoryView.adapterOf((ViewGroup) self);
-                        if (adapter == null
-                                || !adapter.getClass().getName().startsWith(STORY_PKG_PREFIX)) {
-                            return;
-                        }
-                        Activity activity = activityOf(((View) self).getContext());
-                        if (activity != null) {
+                        Activity activity = (Activity) param.thisObject;
+                        if (resume) {
                             attach(activity);
+                        } else {
+                            detach(activity);
                         }
                     } catch (Throwable ignore) {
                         // never disturb the host
                     }
                 }
             };
-            // Only hook the override declared by RecyclerView itself, never
-            // View.onAttachedToWindow (that would fire for every view).
-            boolean any = false;
-            for (Method m : recycler.getDeclaredMethods()) {
-                if (!"onAttachedToWindow".equals(m.getName())) {
-                    continue;
-                }
-                XposedBridge.hookMethod(m, callback);
-                any = true;
-            }
-            if (!any) {
-                Log.d(TAG, "story: RecyclerView.onAttachedToWindow not declared, fallback off");
-            }
+            XposedHelpers.findAndHookMethod(page, method, args);
+            FbaLog.d("story: hooked " + page.getName() + "." + method);
+            return 1;
         } catch (Throwable t) {
-            Log.d(TAG, "story: recycler attach hook skipped: " + t);
+            FbaLog.d("story: hook " + method + " failed: " + t);
+            return 0;
         }
     }
 
-    private static Activity activityOf(Context context) {
-        Context c = context;
-        for (int i = 0; i < 6 && c != null; i++) {
-            if (c instanceof Activity) {
-                return (Activity) c;
-            }
-            if (!(c instanceof ContextWrapper)) {
-                return null;
-            }
-            c = ((ContextWrapper) c).getBaseContext();
-        }
-        return null;
+    private static boolean hookFrameworkLifecycle() {
+        boolean any = false;
+        any |= hookFramework("performResume", true);
+        any |= hookFramework("onResume", true);
+        any |= hookFramework("performPause", false);
+        any |= hookFramework("onPause", false);
+        any |= hookFramework("performDestroy", false);
+        return any;
     }
 
-    private static void hookActivityMethod(String method, final boolean resume) {
+    private static boolean hookFramework(String method, final boolean resume) {
         try {
             XposedBridge.hookAllMethods(Activity.class, method, new XC_MethodHook() {
                 @Override
@@ -188,27 +221,89 @@ public final class StoryAdSniper {
                     }
                 }
             });
+            return true;
         } catch (Throwable t) {
-            Log.d(TAG, "hooking " + method + " failed: " + t);
+            FbaLog.d("story: framework hook " + method + " failed: " + t);
+            return false;
+        }
+    }
+
+    /**
+     * Fallback trigger: the story list attaching to the window. Used when the
+     * page is hosted without a fresh activity resume.
+     */
+    private static boolean hookRecyclerAttach(ClassLoader classLoader) {
+        try {
+            final Class<?> recycler = XposedHelpers.findClass(RV_CLASS, classLoader);
+            XC_MethodHook callback = new XC_MethodHook() {
+                @Override
+                protected void afterHookedMethod(MethodHookParam param) {
+                    try {
+                        Object self = param.thisObject;
+                        if (!(self instanceof ViewGroup)) {
+                            return;
+                        }
+                        Activity activity = activityOf(((View) self).getContext());
+                        if (activity != null && isStoryActivity(activity)) {
+                            attach(activity);
+                        }
+                    } catch (Throwable ignore) {
+                        // never disturb the host
+                    }
+                }
+            };
+            // Only hook the override declared by RecyclerView itself, never
+            // View.onAttachedToWindow (that would fire for every view).
+            boolean any = false;
+            for (Method m : recycler.getDeclaredMethods()) {
+                if (!"onAttachedToWindow".equals(m.getName())) {
+                    continue;
+                }
+                XposedBridge.hookMethod(m, callback);
+                any = true;
+            }
+            return any;
+        } catch (Throwable t) {
+            FbaLog.e("story: recycler attach hook failed", t);
+            return false;
         }
     }
 
     private static boolean isStoryActivity(Activity activity) {
+        if (activity == null) {
+            return false;
+        }
         if (storyActivity != null && storyActivity.isInstance(activity)) {
             return true;
         }
-        return activity.getClass().getName().startsWith(STORY_PKG_PREFIX);
+        String name = activity.getClass().getName();
+        return name.startsWith(STORY_PKG_PREFIX) || name.contains("StoryVideo");
+    }
+
+    private static Activity activityOf(Context context) {
+        Context c = context;
+        for (int i = 0; i < 6 && c != null; i++) {
+            if (c instanceof Activity) {
+                return (Activity) c;
+            }
+            if (!(c instanceof ContextWrapper)) {
+                return null;
+            }
+            c = ((ContextWrapper) c).getBaseContext();
+        }
+        return null;
     }
 
     private static synchronized void attach(Activity activity) {
-        if (current != null && current.activity == activity) {
-            current.start();
+        Host host = current;
+        if (host != null && host.activity == activity) {
+            host.start();
             return;
         }
         detach(null);
         current = new Host(activity);
         current.start();
-        Log.d(TAG, "story session start: " + activity.getClass().getName());
+        FbaLog.i("story session start: " + activity.getClass().getName());
     }
 
     private static synchronized void detach(Activity activity) {
@@ -222,6 +317,8 @@ public final class StoryAdSniper {
         host.stop();
         current = null;
     }
+
+    // ------------------------------------------------------------------ session
 
     /** One story page session. */
     private static final class Host implements Runnable {
@@ -238,12 +335,13 @@ public final class StoryAdSniper {
         long windowStart;
         int windowCount;
 
-        /** Diagnostics: rate-limited so a stuck page cannot flood logcat. */
+        /** Diagnostics. */
         long lastMissingLogAt;
         long lastNotAdLogAt;
         String lastDetectedId;
-        int lastLogPos = -1;
-        String lastLogItem;
+        String lastDiag;
+        long lastHeartbeatAt;
+        boolean itemMissLogged;
 
         Host(Activity activity) {
             this.activity = activity;
@@ -270,8 +368,8 @@ public final class StoryAdSniper {
             }
             try {
                 scan();
-            } catch (Throwable ignore) {
-                // keep polling
+            } catch (Throwable t) {
+                FbaLog.e("story scan failed", t);
             }
             if (running) {
                 handler.postDelayed(this, POLL_MS);
@@ -280,24 +378,39 @@ public final class StoryAdSniper {
 
         private void scan() {
             if (!FbaPrefs.storySkip()) {
+                StoryDiag.update("自动跳过已关闭");
                 return;
             }
             ViewGroup rv = StoryView.findRecycler(activity);
             if (rv == null) {
+                StoryDiag.update("未找到小视频列表（页面结构未匹配）");
                 reportMissingRecycler();
                 return;
             }
             View child = StoryView.dominantChild(rv);
             int pos = StoryView.adapterPosition(rv, child);
+            Object item = StoryView.itemOf(rv, child);
+            Object adapter = StoryView.adapterOf(rv);
+            boolean ad = isAd(item);
+            String diag = "rv=" + simple(rv) + " adapter=" + simple(adapter) + " pos=" + pos
+                    + " item=" + simple(item) + " ad=" + ad + " " + adInfo(item);
+            StoryDiag.update(diag);
+            reportDiag(diag);
             if (pos < 0) {
                 return;
             }
-            Object item = StoryView.itemOf(rv, child);
-            if (FbaPrefs.verbose()) {
-                logScan(pos, item);
+            if (item == null) {
+                if (!itemMissLogged) {
+                    itemMissLogged = true;
+                    FbaLog.w("story: item not resolved, " + diag);
+                    if (FbaPrefs.verbose()) {
+                        HostToast.show(activity, "FBA 无法识别当前条目");
+                    }
+                }
+                return;
             }
             long now = System.currentTimeMillis();
-            if (!isAd(item)) {
+            if (!ad) {
                 pendingId = null;
                 reportNotAd(item, pos, now);
                 return;
@@ -321,22 +434,32 @@ public final class StoryAdSniper {
             }
             if (!id.equals(lastDetectedId)) {
                 lastDetectedId = id;
-                FbaLog.i("story: ad detected at pos " + pos + " id=" + id
-                        + " | " + StoryDebug.snapshot(activity));
+                FbaLog.i("story: ad detected at pos " + pos + " id=" + id + " | " + diag);
+                if (FbaPrefs.verbose()) {
+                    HostToast.show(activity, "FBA 检测到广告 pos=" + pos);
+                }
             }
             pendingId = id;
             skip(id, pos);
         }
 
-        /** Detailed log: one line per visible card change, only when enabled. */
-        private void logScan(int pos, Object item) {
-            String name = item == null ? "null" : item.getClass().getName();
-            if (pos == lastLogPos && name.equals(lastLogItem)) {
-                return;
+        private void reportDiag(String diag) {
+            long now = System.currentTimeMillis();
+            boolean changed = !diag.equals(lastDiag);
+            if (changed || now - lastHeartbeatAt > 30_000L) {
+                lastDiag = diag;
+                lastHeartbeatAt = now;
+                FbaLog.i("story scan " + diag);
             }
-            lastLogPos = pos;
-            lastLogItem = name;
-            FbaLog.d("scan pos=" + pos + " item=" + name + " ad=" + isAd(item));
+        }
+
+        private String adInfo(Object item) {
+            Object ad = StoryView.fieldValue(item, "adInfo");
+            if (ad == null) {
+                return "adInfo=null";
+            }
+            return "adInfo{feedIsAd=" + StoryView.fieldValue(ad, "feedIsAd")
+                    + ",creativeId=" + StoryView.fieldValue(ad, "feedCreativeId") + "}";
         }
 
         private void reportMissingRecycler() {
@@ -345,7 +468,7 @@ public final class StoryAdSniper {
                 return;
             }
             lastMissingLogAt = now;
-            Log.d(TAG, "story: story list not found (activity="
+            FbaLog.w("story: story list not found (activity="
                     + activity.getClass().getName() + ")");
         }
 
@@ -358,7 +481,7 @@ public final class StoryAdSniper {
                 return;
             }
             lastNotAdLogAt = now;
-            Log.d(TAG, "story: card at " + pos + " has adInfo but feedIsAd="
+            FbaLog.w("story: card at " + pos + " has adInfo but feedIsAd="
                     + StoryView.fieldValue(ad, "feedIsAd"));
         }
 
@@ -392,8 +515,6 @@ public final class StoryAdSniper {
                         FbaLog.w("story: skip failed at pos " + pos);
                         return;
                     }
-                    // Only a scroll that was actually issued counts as "skipped",
-                    // otherwise an aborted attempt would blacklist the card.
                     lastSkipAt = System.currentTimeMillis();
                     skippedAt.put(id, lastSkipAt);
                     if (skippedAt.size() > 400) {
@@ -428,7 +549,7 @@ public final class StoryAdSniper {
                     if (now >= 0 && now != fromPos) {
                         return; // the list moved, nothing to fix
                     }
-                    Log.d(TAG, "story: skip did not advance, retry " + attempt + " at pos " + fromPos);
+                    FbaLog.w("story: skip did not advance, retry " + attempt + " at pos " + fromPos);
                     StoryNext.toNext(rv, fromPos, attempt == 0
                             ? StoryNext.MODE_DIRECT : StoryNext.MODE_BY_SCREEN);
                     verifyLater(fromPos, attempt + 1);
@@ -443,5 +564,9 @@ public final class StoryAdSniper {
             Object ad = StoryView.fieldValue(item, "adInfo");
             return ad != null && Boolean.TRUE.equals(StoryView.fieldValue(ad, "feedIsAd"));
         }
+    }
+
+    private static String simple(Object value) {
+        return value == null ? "null" : value.getClass().getSimpleName();
     }
 }

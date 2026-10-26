@@ -9,21 +9,22 @@ import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.nio.charset.Charset;
 import java.text.SimpleDateFormat;
+import java.util.ArrayDeque;
 import java.util.Date;
+import java.util.Deque;
 import java.util.Locale;
 
-import android.app.AndroidAppHelper;
-
 /**
- * Persistent event log shared by every in-host feature.
+ * Event log for the whole module.
  *
- * <p>Lines go to logcat (tag {@code FuckBiliAds}) and to
- * {@code files/fuckbiliads/events.log} inside the host's data dir, so the
- * settings panel can show / export them without any storage permission.
+ * <p>Two sinks are kept on purpose: a small in-memory ring (always available,
+ * survives a broken/unavailable app context and is what "本次运行" shows) and a
+ * file under the host's private data dir (persistent, exported from the
+ * settings page). Both are mirrored to logcat with tag {@code FuckBiliAds}.
  */
 public final class FbaLog {
 
-    private static final String TAG = "FuckBiliAds";
+    private static final String TAG = FbaRuntime.TAG;
     private static final String DIR = "fuckbiliads";
     private static final String FILE = "events.log";
     private static final String ROTATED = "events.log.1";
@@ -31,19 +32,21 @@ public final class FbaLog {
     /** Keep the file small: the viewer only ever shows the tail. */
     private static final long MAX_BYTES = 512 * 1024L;
     private static final int MAX_READ_BYTES = 256 * 1024;
+    private static final int MEMORY_LINES = 500;
 
     private static final Charset UTF8 = Charset.forName("UTF-8");
 
     private static final Object LOCK = new Object();
-    private static Context context;
+    private static final Deque<String> MEMORY = new ArrayDeque<>();
+
+    private static volatile String lastError = "";
+    private static volatile boolean fileOk;
 
     private FbaLog() {
     }
 
     public static void init(Context ctx) {
-        if (ctx != null) {
-            context = ctx.getApplicationContext();
-        }
+        FbaRuntime.init(ctx);
     }
 
     public static void d(String message) {
@@ -65,8 +68,17 @@ public final class FbaLog {
     public static void write(String level, String message) {
         String line = stamp() + " [" + level + "] " + message;
         Log.d(TAG, message);
-        Context ctx = context();
+        synchronized (LOCK) {
+            MEMORY.addLast(line);
+            while (MEMORY.size() > MEMORY_LINES) {
+                MEMORY.removeFirst();
+            }
+        }
+        Context ctx = FbaRuntime.context();
         if (ctx == null) {
+            synchronized (LOCK) {
+                lastError = "no application context";
+            }
             return;
         }
         synchronized (LOCK) {
@@ -74,6 +86,7 @@ public final class FbaLog {
             try {
                 File dir = new File(ctx.getFilesDir(), DIR);
                 if (!dir.exists() && !dir.mkdirs()) {
+                    lastError = "mkdir failed: " + dir;
                     return;
                 }
                 File file = new File(dir, FILE);
@@ -88,17 +101,20 @@ public final class FbaLog {
                 }
                 out = new FileOutputStream(file, true);
                 out.write((line + "\n").getBytes(UTF8));
-            } catch (Throwable ignore) {
-                // logging must never break the host
+                fileOk = true;
+                lastError = "";
+            } catch (Throwable t) {
+                fileOk = false;
+                lastError = String.valueOf(t);
             } finally {
                 close(out);
             }
         }
     }
 
-    /** Whole log (tail-truncated), newest last. */
+    /** Persistent log file (tail-truncated), newest last. */
     public static String read() {
-        Context ctx = context();
+        Context ctx = FbaRuntime.context();
         if (ctx == null) {
             return "";
         }
@@ -113,12 +129,32 @@ public final class FbaLog {
         }
     }
 
-    public static void clear() {
-        Context ctx = context();
-        if (ctx == null) {
-            return;
-        }
+    /** Everything logged since the process started, file or not. */
+    public static String recent() {
         synchronized (LOCK) {
+            StringBuilder sb = new StringBuilder();
+            for (String line : MEMORY) {
+                sb.append(line).append('\n');
+            }
+            return sb.toString();
+        }
+    }
+
+    public static boolean fileOk() {
+        return fileOk;
+    }
+
+    public static String lastError() {
+        return lastError;
+    }
+
+    public static void clear() {
+        Context ctx = FbaRuntime.context();
+        synchronized (LOCK) {
+            MEMORY.clear();
+            if (ctx == null) {
+                return;
+            }
             File dir = new File(ctx.getFilesDir(), DIR);
             //noinspection ResultOfMethodCallIgnored
             new File(dir, FILE).delete();
@@ -128,7 +164,7 @@ public final class FbaLog {
     }
 
     public static File file() {
-        Context ctx = context();
+        Context ctx = FbaRuntime.context();
         if (ctx == null) {
             return null;
         }
@@ -168,17 +204,6 @@ public final class FbaLog {
 
     private static String stamp() {
         return new SimpleDateFormat("MM-dd HH:mm:ss.SSS", Locale.US).format(new Date());
-    }
-
-    private static Context context() {
-        if (context == null) {
-            try {
-                context = AndroidAppHelper.currentApplication();
-            } catch (Throwable ignore) {
-                // keep null
-            }
-        }
-        return context;
     }
 
     private static void close(java.io.Closeable closeable) {

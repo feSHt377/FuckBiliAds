@@ -6,7 +6,7 @@
 
 **哔哩哔哩 Xposed 去广告模块 · 小视频广告自动跳过**
 
-![version](https://img.shields.io/badge/version-1.0.3-ff2d55)
+![version](https://img.shields.io/badge/version-1.0.4-ff2d55)
 ![platform](https://img.shields.io/badge/platform-Android%208.0%2B-3ddc84)
 ![framework](https://img.shields.io/badge/LSPosed-%E2%89%A5%2054-00aeec)
 
@@ -78,6 +78,7 @@ adb logcat -s FuckBiliAds
 |---|---|
 | 功能 | 小视频广告自动跳过、跳过时提示、分享面板标记入口 |
 | 调试 | 标记当前条目、复制页面诊断、详细日志、测试宿主 Toast |
+| 诊断 | 模块状态、小视频最近扫描、日志落盘状态、播报模块状态 |
 | 日志 | 查看最近日志、导出日志（分享文本 + 保存到 Download）、清空日志 |
 | 关于 | 模块版本、宿主版本、Hook 状态、日志路径 |
 
@@ -92,6 +93,15 @@ adb logcat -s FuckBiliAds
 ```text
 10-26 19:40:12.331 [I] [MARK] source=share activity=com.bilibili.video.story.StoryVideoActivity rv=androidx.recyclerview.widget.RecyclerView adapter=com.bilibili.video.story.L children=3 pos=6 visible=1080x2300 item=com.bilibili.video.story.StoryDetail aid=0 cid=0 adType=-1 adInfo=... feedIsAd=true creativeId=3995855299
 ```
+
+## 1.0.4 变更（9.16.1 适配）
+
+- **启动播报**：进入 B 站后用 Toast 显示 `已加载 · 小视频✓ 入口✓ 分享✓`，加载失败或部分失败会带 ✗；设置页「诊断 → 播报模块状态」可随时重播。
+- **按结构匹配，不认混淆名**：9.16 把分享控制器从 `r0` 换成 `k0`、列表适配器从 `L` 换成 `X`。现在分享入口锚在 `StoryActionHelper` 的 `(StoryDetail, StoryShareFrom) -> String` 方法签名上，列表则按「适配器里是否有 `adInfo`+`adType` 的条目对象」来选，不再依赖类名。
+- **入口不再消失**：服务端静默刷新会重建 `MenuGroup`，入口改为在适配器每次 bind 前补齐，并保留 10 秒重试窗口。
+- **日志补齐**：内存环形缓冲 + 文件双写，设置页同时展示「本次运行」和「历史日志」；每个功能的 Hook 安装结果单独记录，单个失败不会中断其它功能。
+- **小视频看门狗**：每 2 秒检查前台 Activity，即使生命周期 Hook 在 LSPatch 上不生效，进入小视频页也会自动开始检测。
+- **诊断可见**：设置页「诊断」分组显示模块各功能状态、小视频最近一次扫描（rv/适配器/pos/条目/adInfo）。
 
 ## 构建
 
