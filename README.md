@@ -7,8 +7,9 @@
 **哔哩哔哩 Xposed 去广告模块 · 小视频广告自动跳过**
 
 ![version](https://img.shields.io/badge/version-1.0.6-ff2d55)
+![host](https://img.shields.io/badge/host-9.16.1%20tested-00aeec)
 ![platform](https://img.shields.io/badge/platform-Android%208.0%2B-3ddc84)
-![framework](https://img.shields.io/badge/LSPosed-%E2%89%A5%2054-00aeec)
+![framework](https://img.shields.io/badge/LSPosed%20%2F%20LSPatch-API%2082%2B-3ddc84)
 
 </div>
 
@@ -24,6 +25,9 @@
 
 本项目基于 [fredoseep/biliDanmuCheck](https://github.com/fredoseep/biliDanmuCheck) 二次开发，
 包名、应用名、图标与发布流程均已重做，后续由本仓库独立维护。
+
+> **最高实测宿主版本：哔哩哔哩 `9.16.1`（versionCode 9161100）**，在 LSPosed 2.2.1 与 LSPatch 1.2 下均已验证。
+> 更早的 `9.15.0` 同样可用，其它版本的兼容情况见 [兼容性](#兼容性)。
 
 ## 功能
 
@@ -43,12 +47,50 @@
 
 ## 安装
 
-1. 手机已 **Root**，并安装 [Magisk](https://github.com/topjohnwu/Magisk) 与 [LSPosed](https://github.com/LSPosed/LSPosed)；
+1. 选择生效方式：
+   - **Root**：安装 [Magisk](https://github.com/topjohnwu/Magisk) + [LSPosed](https://github.com/LSPosed/LSPosed)；
+   - **无 Root**：用 [LSPatch](https://github.com/LSPosed/LSPatch) 以「本地 / 嵌入式」模式把本模块补进哔哩哔哩；
 2. 从 [Releases](../../releases) 下载 `FuckBiliAds-*.apk` 并安装；
-3. 在 LSPosed 中启用模块，**作用域勾选哔哩哔哩**（`tv.danmaku.bili`）；
+3. 在 LSPosed 中启用模块，**作用域勾选哔哩哔哩**（`tv.danmaku.bili`）；LSPatch 方式则在打补丁时勾选本模块；
 4. 强制停止哔哩哔哩后重新打开。
 
-要求：Android 8.0+（minSdk 26），Xposed API 54+。
+要求：Android 8.0+（minSdk 26），Xposed API 82+（LSPosed 与 LSPatch 均可）。
+
+## 兼容性
+
+### 宿主版本
+
+| 哔哩哔哩版本 | versionCode | 状态 |
+|---|---|---|
+| **9.16.1** | 9161100 | ✅ **最高实测版本**，当前开发与验证基线 |
+| 9.15.0 | 9150300 | ✅ 小视频跳过 / 设置入口 / 分享标记均可用 |
+| 9.14 及更早 | — | ⚠️ 未实测，其余广告位按 9.15 的类名定位，可能失效 |
+| 9.17 及更新 | — | ❓ 未验证，宿主混淆重排后部分功能可能失效 |
+
+小视频跳过、设置入口、分享标记三项已改为**按结构匹配**（方法签名 / 字段组合 / 适配器内容），
+不依赖混淆后的类名，因此在 9.15 → 9.16.1 之间保持可用；其余广告位仍由 DexKit 按类名特征定位，
+宿主大版本更新后可能需要重新适配。
+
+### 运行环境
+
+| 项 | 要求 / 实测 |
+|---|---|
+| Android | 8.0+（minSdk 26），targetSdk 36；实测 Android 15（SDK 35） |
+| 框架 | Xposed API 82+；实测 **LSPosed 2.2.1（API 102）** 与 **LSPatch 1.2（API 102）** 均正常 |
+| 架构 | 实测 arm64-v8a；模块无 native 依赖，armeabi-v7a / x86_64 理论上同样可用 |
+| 安装形态 | Root + LSPosed；或无 Root 用 LSPatch 把模块补进宿主 |
+| 实测设备 | OnePlus PGZ110 · Android 15 · arm64-v8a · 哔哩哔哩 9.16.1 |
+
+### 已知限制
+
+- **LSPatch 容器下部分广告位可能不生效**：`DexKitHelper` 用 `lpparam.appInfo.sourceDir` 打开 APK 做扫描，
+  容器包的 `sourceDir` 指向体积很小的 stub，扫不到真实 dex，于是开屏 / Feed / 直播间 / 播放页等
+  「按类名定位」的广告位会静默跳过；小视频跳过、设置入口、分享标记不依赖 DexKit，不受影响。
+- **宿主被二次修改**（加固、改包、非官方渠道）时类名与字段可能再次变化，需要重新适配。
+- 模块只作用于作用域内的 `tv.danmaku.bili`，勾选其它包名不会生效。
+
+进入宿主后若看到 Toast `已加载 · 小视频✓ 入口✓ 分享✓`，说明三项核心功能均已挂上；
+带 ✗ 的那一项表示安装失败，可在设置页「诊断 / 日志」查看原因。
 
 ## 小视频自动跳过是怎么做到
 
@@ -94,7 +136,7 @@ adb logcat -s FuckBiliAds
 10-26 19:40:12.331 [I] [MARK] source=share activity=com.bilibili.video.story.StoryVideoActivity rv=androidx.recyclerview.widget.RecyclerView adapter=com.bilibili.video.story.L children=3 pos=6 visible=1080x2300 item=com.bilibili.video.story.StoryDetail aid=0 cid=0 adType=-1 adInfo=... feedIsAd=true creativeId=3995855299
 ```
 
-## 1.0.4 / 1.0.5 变更（9.16.1 适配）
+## 1.0.4 ~ 1.0.6 变更（9.16.1 适配）
 
 - **启动播报**：进入 B 站后用 Toast 显示 `已加载 · 小视频✓ 入口✓ 分享✓`，加载失败或部分失败会带 ✗；设置页「诊断 → 播报模块状态」可随时重播。
 - **按结构匹配，不认混淆名**：9.16 把分享控制器从 `r0` 换成 `k0`、列表适配器从 `L` 换成 `X`。现在分享入口锚在 `StoryActionHelper` 的 `(StoryDetail, StoryShareFrom) -> String` 方法签名上，列表则按「适配器里是否有 `adInfo`+`adType` 的条目对象」来选，不再依赖类名。

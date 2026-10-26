@@ -2,9 +2,9 @@
 
 > 本文合并了原先的「定位任务」与「探测结果」两份文档，包含从需求、方法到实现与验证的完整链路。
 >
-> - 宿主：哔哩哔哩 9.15.0（versionCode 9150300，targetSdk 35）
+> - 宿主：哔哩哔哩 9.15.0（versionCode 9150300，targetSdk 35）调研基线；**最高实测 9.16.1（9161100）**
 > - 设备：OnePlus PGZ110 / Android 15（SDK 35）/ arm64-v8a
-> - 框架：Magisk 30.7 + LSPosed 2.2.1（API 102）
+> - 框架：Magisk 30.7 + LSPosed 2.2.1（API 102）；另在 LSPatch 1.2（API 102）容器下复测
 > - 模块：FuckBiliAds（本仓库）
 
 ---
@@ -305,3 +305,7 @@ adb logcat -s FuckBiliAds
 - **日志缺失**：不再只依赖 `AndroidAppHelper` 取 Context（LSPatch 下可能拿不到），改为 `AndroidAppHelper → ActivityThread.currentApplication()` 多级回退，并增加内存环形缓冲，设置页同时展示「本次运行」与「历史日志」。
 
 排查入口依旧在设置页「诊断」：`小视频扫描` 一行直接给出 `rv / adapter / pos / item / adInfo`，`日志落盘` 显示文件是否可写。
+
+> **9.16.1 是目前的最高实测版本**；1.0.6 已在 LSPosed 2.2.1 与 LSPatch 1.2 下验证「启动播报 / 小视频跳过 / 更多服务入口 / 分享标记」四项。
+> 其它广告位（开屏、Feed、直播间、播放页）仍由 DexKit 按类名特征定位：LSPatch 容器的 `sourceDir` 是 stub 包，
+> DexKit 扫不到真实 dex，这些广告位在容器形态下可能不生效，详见 README「兼容性」。
