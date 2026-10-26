@@ -79,6 +79,17 @@ export KEY_PASSWORD=...
   构建 → 签名 → 校验签名 → 上传 APK 并创建 Release；
 - 也可在 Actions 页面手动 `workflow_dispatch`，只产出构建工件。
 
+仓库需要的 Actions Secrets（已由 `gh secret set` 配置）：
+
+| Secret | 内容 |
+|---|---|
+| `KEYSTORE_BASE64` | 签名密钥库的 Base64 |
+| `KEYSTORE_PASSWORD` | 密钥库口令 |
+| `KEY_ALIAS` | `fuckbiliads` |
+| `KEY_PASSWORD` | 密钥口令 |
+
+签名密钥请不要入库；本机备份放在仓库之外，更换密钥会导致已安装版本无法覆盖升级。
+
 ## 目录
 
 ```text
