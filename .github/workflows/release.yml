@@ -96,8 +96,13 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          apksigner="$(find "$ANDROID_SDK_ROOT/build-tools" -name apksigner | sort -V | tail -n 1)"
-          "$apksigner" verify --print-certs "FuckBiliAds-${{ steps.ver.outputs.name }}.apk"
+          apk="FuckBiliAds-${{ steps.ver.outputs.name }}.apk"
+          apksigner="$(find "${ANDROID_SDK_ROOT:-$ANDROID_HOME}/build-tools" -name apksigner 2>/dev/null | sort -V | tail -n 1 || true)"
+          if [ -z "$apksigner" ]; then
+            echo "::warning::apksigner not found, signature check skipped"
+            exit 0
+          fi
+          "$apksigner" verify --print-certs "$apk"
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
