@@ -24,8 +24,12 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+      # fetch-depth: 0 —— release 正文要读 tag 注释（%(contents)），
+      # 默认的浅克隆只拿到 commit，注释会读成空。
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Set up JDK 21
         uses: actions/setup-java@v4
@@ -170,7 +174,11 @@ jobs:
       # softprops/action-gh-release 的 append_body 只在「更新已有 release」时生效，
       # 新建 release 时会被 generate_release_notes 的结果覆盖，于是正文里从来没有
       # 「versionCode: N」。应用内更新检查（UpdateChecker.parseVersionCode）依赖这行
-      # 判断同名版本的新旧（1.2.0-pre 44 vs 1.2.0 45），这里显式补一次 PATCH。
+      # 判断同名版本的新旧（1.2.0-pre 44 vs 1.2.0 45）。这里用 tag 注释重建正文：
+      #   <tag 注释>
+      #   **Full Changelog**: ...
+      #   ---
+      #   versionCode: N
       - name: Append versionCode to release body
         if: github.ref_type == 'tag'
         shell: bash
@@ -186,30 +194,20 @@ jobs:
             echo "::error::cannot resolve release id for $TAG"
             exit 1
           fi
-          notes="$(gh api "repos/$GITHUB_REPOSITORY/releases/$release_id" -q .body)"
+          current="$(gh api "repos/$GITHUB_REPOSITORY/releases/$release_id" -q .body)"
           tag_notes="$(git tag -l --format='%(contents)' "$TAG" | sed -e 's/[[:space:]]*$//')"
-          # 幂等：正文已经以 tag 注释开头，说明上次已经拼过，直接沿用。
-          case "$notes" in
-            "$tag_notes"*) body="$notes" ;;
-            *)
-              if [ -n "$tag_notes" ] && [ -n "$notes" ]; then
-                body="$(printf '%s\n\n%s' "$tag_notes" "$notes")"
-              elif [ -n "$tag_notes" ]; then
-                body="$tag_notes"
-              else
-                body="$notes"
-              fi
-              ;;
-          esac
-          # 幂等：重复运行只刷新数字，不会叠加多行。
-          if printf '%s\n' "$body" | grep -q '^versionCode:'; then
-            body="$(printf '%s\n' "$body" | sed -E "s/^versionCode:.*/versionCode: ${CODE}/")"
-          elif [ -n "$body" ]; then
-            body="$(printf '%s\n\n---\nversionCode: %s' "$body" "$CODE")"
-          else
-            body="versionCode: ${CODE}"
+          if [ -z "$tag_notes" ]; then
+            echo "::warning::tag $TAG 没有注释，退回提交标题"
+            tag_notes="$(git log -1 --pretty=%s)"
           fi
+          # 正文 = tag 注释 + 上游生成的 changelog 行；不累积旧正文，重复运行结果一致。
+          body="$tag_notes"
+          changelog="$(printf '%s\n' "$current" | grep -m1 'Full Changelog' || true)"
+          if [ -n "$changelog" ]; then
+            body="$(printf '%s\n\n%s' "$body" "$changelog")"
+          fi
+          body="$(printf '%s\n\n---\nversionCode: %s' "$body" "$CODE")"
           printf '%s\n' "$body" > "$RUNNER_TEMP/release-notes.md"
           gh api -X PATCH "repos/$GITHUB_REPOSITORY/releases/$release_id" \
             -F body=@"$RUNNER_TEMP/release-notes.md" > /dev/null
-          echo "release body now carries versionCode: ${CODE}"
+          echo "release body updated (versionCode ${CODE})"
