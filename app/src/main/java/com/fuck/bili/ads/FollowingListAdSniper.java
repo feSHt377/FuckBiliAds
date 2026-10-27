@@ -4,6 +4,11 @@ import android.app.Application;
 import android.content.Context;
 import android.util.Log;
 
+import com.fuck.bili.ads.core.Host;
+import com.fuck.bili.ads.core.NativeHooks;
+import com.fuck.bili.ads.core.Reflect;
+import com.fuck.bili.ads.settings.FollowingFilterConfig;
+
 import java.lang.ref.WeakReference;
 import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
@@ -13,12 +18,6 @@ import java.util.IdentityHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Set;
-
-import android.app.AndroidAppHelper;
-import de.robv.android.xposed.XC_MethodHook;
-import de.robv.android.xposed.XposedBridge;
-import de.robv.android.xposed.XposedHelpers;
-import com.fuck.bili.ads.settings.FollowingFilterConfig;
 
 /** Removes matching feed items by building a copy of the protobuf response. */
 public final class FollowingListAdSniper {
@@ -37,21 +36,27 @@ public final class FollowingListAdSniper {
     public static void hook(ClassLoader classLoader) {
         initContext();
         try {
-            Class<?> reply = XposedHelpers.findClass(PREFIX + "DynAllReply", classLoader);
+            Class<?> reply = Reflect.findClass(PREFIX + "DynAllReply", classLoader);
             synchronized (INSTALLED) {
                 if (!INSTALLED.add(reply)) return;
             }
             // Capture direct Parser consumers as well as static parseFrom callers.
             try {
-                XposedHelpers.findAndHookMethod(reply, "getDynamicList", new XC_MethodHook() {
-                    @Override
-                    protected void afterHookedMethod(MethodHookParam param) {
-                        if (param.hasThrowable() || param.getResult() == null) return;
-                        try {
-                            param.setResult(filterList(param.getResult()));
-                        } catch (Throwable t) {
-                            Log.e(TAG, "[FILTER_ERROR] getDynamicList; keeping original result", t);
-                        }
+                Method getDynamicList = NativeHooks.method(reply, "getDynamicList");
+                NativeHooks.hook("FollowingListAdSniper.getDynamicList", getDynamicList, chain -> {
+                    Object result;
+                    try {
+                        result = chain.proceed();
+                    } catch (Throwable t) {
+                        Log.e(TAG, "[FILTER_ERROR] getDynamicList original call failed", t);
+                        throw t;
+                    }
+                    if (result == null) return result;
+                    try {
+                        return filterList(result);
+                    } catch (Throwable t) {
+                        Log.e(TAG, "[FILTER_ERROR] getDynamicList; keeping original result", t);
+                        return result;
                     }
                 });
                 Log.d(TAG, "[INSTALL] getDynamicList filter installed");
@@ -62,21 +67,26 @@ public final class FollowingListAdSniper {
             for (Method method : reply.getDeclaredMethods()) {
                 if (!method.getName().equals("parseFrom") || !Modifier.isStatic(method.getModifiers())
                         || method.getReturnType() != reply) continue;
-                XposedBridge.hookMethod(method, new XC_MethodHook() {
-                    @Override
-                    protected void afterHookedMethod(MethodHookParam param) {
-                        if (param.hasThrowable() || param.getResult() == null) return;
-                        try {
-                            Object originalReply = param.getResult();
-                            Object originalList = XposedHelpers.getObjectField(originalReply, "dynamicList_");
-                            Object filtered = filterList(originalList);
-                            if (filtered == originalList) return;
-                            Object builder = XposedHelpers.callMethod(originalReply, "toBuilder");
-                            XposedHelpers.callMethod(builder, "setDynamicList", filtered);
-                            param.setResult(XposedHelpers.callMethod(builder, "build"));
-                        } catch (Throwable t) {
-                            Log.e(TAG, "[FILTER_ERROR] parseFrom; keeping original reply", t);
-                        }
+                NativeHooks.hook("FollowingListAdSniper.parseFrom", method, chain -> {
+                    Object result;
+                    try {
+                        result = chain.proceed();
+                    } catch (Throwable t) {
+                        Log.e(TAG, "[FILTER_ERROR] parseFrom original call failed", t);
+                        throw t;
+                    }
+                    if (result == null) return result;
+                    try {
+                        Object originalReply = result;
+                        Object originalList = Reflect.getObjectField(originalReply, "dynamicList_");
+                        Object filtered = filterList(originalList);
+                        if (filtered == originalList) return result;
+                        Object builder = Reflect.callMethod(originalReply, "toBuilder");
+                        Reflect.callMethod(builder, "setDynamicList", filtered);
+                        return Reflect.callMethod(builder, "build");
+                    } catch (Throwable t) {
+                        Log.e(TAG, "[FILTER_ERROR] parseFrom; keeping original reply", t);
+                        return result;
                     }
                 });
                 count++;
@@ -88,15 +98,15 @@ public final class FollowingListAdSniper {
     }
 
     private static synchronized void initContext() {
-        Application application = AndroidAppHelper.currentApplication();
+        Application application = Host.currentApplication();
         if (application != null) FollowingFilterConfig.init(application);
         if (applicationHooked) return;
         try {
-            XposedHelpers.findAndHookMethod(Application.class, "attach", Context.class, new XC_MethodHook() {
-                @Override
-                protected void afterHookedMethod(MethodHookParam param) {
-                    FollowingFilterConfig.init((Context) param.thisObject);
-                }
+            Method attach = NativeHooks.method(Application.class, "attach", Context.class);
+            NativeHooks.hook("FollowingListAdSniper.ApplicationAttach", attach, chain -> {
+                Object result = chain.proceed();
+                FollowingFilterConfig.init((Context) chain.getThisObject());
+                return result;
             });
             applicationHooked = true;
         } catch (Throwable t) {
@@ -115,7 +125,7 @@ public final class FollowingListAdSniper {
                 Object output = cachedOutput.get();
                 if (cachedInput.get() == original && cachedConfig == config && output != null) return output;
             }
-            List<?> items = (List<?>) XposedHelpers.getObjectField(original, "list_");
+            List<?> items = (List<?>) Reflect.tryGetObjectField(original, "list_");
             List<Object> kept = new ArrayList<>(items.size());
             int removed = 0;
             for (int i = 0; i < items.size(); i++) {
@@ -156,10 +166,10 @@ public final class FollowingListAdSniper {
             }
             Object result = original;
             if (removed > 0) {
-                Object builder = XposedHelpers.callMethod(original, "toBuilder");
-                XposedHelpers.callMethod(builder, "clearList");
-                XposedHelpers.callMethod(builder, "addAllList", kept);
-                result = XposedHelpers.callMethod(builder, "build");
+                Object builder = Reflect.tryCallMethod(original, "toBuilder");
+                Reflect.tryCallMethod(builder, "clearList");
+                Reflect.tryCallMethod(builder, "addAllList", kept);
+                result = Reflect.tryCallMethod(builder, "build");
                 Log.d(TAG, "[FILTER] before=" + items.size() + " removed=" + removed + " after=" + kept.size());
             }
             synchronized (FollowingListAdSniper.class) {
@@ -199,7 +209,7 @@ public final class FollowingListAdSniper {
                                        Set<Object> visited, int forwardDepth) {
         if (item == null || !visited.add(item)) return;
         if (forwardDepth > 16) throw new IllegalStateException("Forward nesting exceeds 16");
-        Object raw = XposedHelpers.getObjectField(item, "modules_");
+        Object raw = Reflect.tryGetObjectField(item, "modules_");
         if (!(raw instanceof List<?>)) return;
         List<?> modules = (List<?>) raw;
         boolean needsText = !out.config.rules.isEmpty()
@@ -207,30 +217,30 @@ public final class FollowingListAdSniper {
         for (int i = 0; i < modules.size(); i++) {
             Object module = modules.get(i);
             String modulePath = path + ".modules_[" + i + "]";
-            int selected = XposedHelpers.getIntField(module, "moduleItemCase_");
-            Object payload = XposedHelpers.getObjectField(module, "moduleItem_");
+            int selected = (Integer) Reflect.tryGetObjectField(module, "moduleItemCase_");
+            Object payload = Reflect.tryGetObjectField(module, "moduleItem_");
             if (payload == null) continue;
             if (selected == 4 && needsText) {
-                out.append(modulePath + ".desc.text_", XposedHelpers.getObjectField(payload, "text_"), forwardDepth > 0);
+                out.append(modulePath + ".desc.text_", Reflect.tryGetObjectField(payload, "text_"), forwardDepth > 0);
             } else if (selected == 30 && needsText) {
                 out.append(modulePath + ".opus", extractOpusText(payload), forwardDepth > 0);
             } else if (selected == 5) {
-                int bodyCase = XposedHelpers.getIntField(payload, "moduleItemCase_");
-                Object body = XposedHelpers.getObjectField(payload, "moduleItem_");
+                int bodyCase = (Integer) Reflect.tryGetObjectField(payload, "moduleItemCase_");
+                Object body = Reflect.tryGetObjectField(payload, "moduleItem_");
                 if (body == null) continue;
                 if (bodyCase == 6 && body.getClass().getName().equals(PREFIX + "MdlDynForward")) {
                     out.forwarded = true;
                     String originPath = modulePath + ".moduleItem_.moduleItem_.item_";
                     if (DEBUG_FORWARD_MATCH) Log.d(TAG, "[FORWARD_PATH] " + originPath);
-                    collectDynamic(XposedHelpers.getObjectField(body, "item_"), originPath,
+                    collectDynamic(Reflect.tryGetObjectField(body, "item_"), originPath,
                             out, visited, forwardDepth + 1);
                 } else if (body.getClass().getName().equals(PREFIX + "MdlDynArchive")
                         && needsText) {
-                    out.append(modulePath + ".archive.title_", XposedHelpers.getObjectField(body, "title_"), forwardDepth > 0);
+                    out.append(modulePath + ".archive.title_", Reflect.tryGetObjectField(body, "title_"), forwardDepth > 0);
                 }
             } else if (selected == 8 && out.config.blockUpRecommend
-                    && XposedHelpers.getIntField(payload, "itemCase_") == 3) {
-                Object goods = XposedHelpers.getObjectField(payload, "item_");
+                    && (Integer) Reflect.tryGetObjectField(payload, "itemCase_") == 3) {
+                Object goods = Reflect.tryGetObjectField(payload, "item_");
                 if (isRecommendation(optionalField(goods, "rcmdDesc_"))) out.recommended = true;
                 Object entries = optionalField(goods, "goodsItems_");
                 if (entries instanceof List<?>) {
@@ -342,12 +352,7 @@ public final class FollowingListAdSniper {
     }
 
     private static Object optionalField(Object object, String name) {
-        if (object == null) return null;
-        try {
-            return XposedHelpers.getObjectField(object, name);
-        } catch (NoSuchFieldError | RuntimeException e) {
-            return null;
-        }
+        return Reflect.tryGetObjectField(object, name);
     }
 
 

@@ -18,21 +18,8 @@
         android:label="@string/app_name"
         android:roundIcon="@mipmap/ic_launcher_round"
         android:supportsRtl="true"
-        android:theme="@style/Theme.FuckBiliAds">
-
-        <meta-data
-            android:name="xposedmodule"
-            android:value="true" />
-        <meta-data
-            android:name="xposeddescription"
-            android:value="去除B站广告 · 小视频广告自动跳过 · 查看弹幕发送者" />
-        <meta-data
-            android:name="xposedminversion"
-            android:value="82" />
-        <meta-data
-            android:name="xposedscope"
-            android:resource="@array/xposed_scope" />
-
+        android:theme="@style/Theme.FuckBiliAds"
+        android:description="@string/xposed_description">
     </application>
 
 </manifest>

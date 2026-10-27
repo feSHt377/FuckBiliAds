@@ -3,8 +3,8 @@ plugins {
 }
 
 // Version can be overridden from CI: -PversionCode=12 -PversionName=1.2.3
-def appVersionCode = (project.findProperty("versionCode") ?: "10102").toString().toInteger()
-def appVersionName = (project.findProperty("versionName") ?: "1.1.2").toString()
+def appVersionCode = (project.findProperty("versionCode") ?: "10200").toString().toInteger()
+def appVersionName = (project.findProperty("versionName") ?: "1.2.0").toString()
 
 // Release signing material is injected by CI (see .github/workflows/release.yml).
 def ksPath = System.getenv("KEYSTORE_FILE") ?: project.findProperty("KEYSTORE_FILE")
@@ -68,5 +68,6 @@ dependencies {
     implementation libs.appcompat
     implementation libs.material
     implementation(libs.dexkit.v220)
-    compileOnly libs.api
+    compileOnly(libs.libxposed.api)
+    testImplementation libs.junit
 }

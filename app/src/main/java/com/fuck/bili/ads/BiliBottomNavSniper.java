@@ -1,12 +1,12 @@
 package com.fuck.bili.ads;
 
 import android.util.Log;
+
+import com.fuck.bili.ads.core.NativeHooks;
+import com.fuck.bili.ads.core.Reflect;
+
 import java.lang.reflect.Field;
 import java.util.List;
-
-import de.robv.android.xposed.XC_MethodHook;
-import de.robv.android.xposed.XposedBridge;
-import de.robv.android.xposed.XposedHelpers;
 
 public class BiliBottomNavSniper {
 
@@ -15,34 +15,29 @@ public class BiliBottomNavSniper {
 
     public static void hook(final ClassLoader classLoader) {
         try {
-            final Class<?> targetClass = XposedHelpers.findClass(TARGET_CLASS, classLoader);
+            final Class<?> targetClass = Reflect.findClass(TARGET_CLASS, classLoader);
             Log.d(TAG, "Successfully found BaseMainFrameFragment. Injecting data filters...");
 
-            XC_MethodHook listCleanerHook = new XC_MethodHook() {
-                @Override
-                protected void beforeHookedMethod(MethodHookParam param) throws Throwable {
-                    // 传入 targetClass 确保我们扫描的是父类的字段
-                    cleanBottomNavList(param.thisObject, targetClass, param.method.getName() + " (before)");
-                }
-
-                @Override
-                protected void afterHookedMethod(MethodHookParam param) throws Throwable {
-                    cleanBottomNavList(param.thisObject, targetClass, param.method.getName() + " (after)");
-                }
-            };
-
             String[] targetMethods = {"onCreate", "onViewCreated", "onActivityCreated"};
-
             for (String methodName : targetMethods) {
                 try {
-                    XposedBridge.hookAllMethods(targetClass, methodName, listCleanerHook);
+                    NativeHooks.hookAllMethods("BiliBottomNavSniper." + methodName,
+                            targetClass, methodName, chain -> {
+                                // before
+                                cleanBottomNavList(chain.getThisObject(), targetClass,
+                                        methodName + " (before)");
+                                Object result = chain.proceed();
+                                // after
+                                cleanBottomNavList(chain.getThisObject(), targetClass,
+                                        methodName + " (after)");
+                                return result;
+                            });
                 } catch (Throwable t) {
                     Log.e(TAG, "Failed to hook method: " + methodName, t);
                 }
             }
 
             Log.d(TAG, "Bottom Navigation data filters applied successfully.");
-
         } catch (Throwable t) {
             Log.e(TAG, "Failed to initialize BaseMainFrameFragment hook.", t);
         }
@@ -105,7 +100,7 @@ public class BiliBottomNavSniper {
                 }
             }
         } catch (Throwable t) {
-            // 忽略反射权限异常
+            Log.d(TAG, "tab reflection failed: " + t);
         }
         return false;
     }

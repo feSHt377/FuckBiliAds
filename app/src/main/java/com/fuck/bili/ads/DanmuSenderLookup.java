@@ -1,22 +1,21 @@
 package com.fuck.bili.ads;
 
-import android.app.AndroidAppHelper;
 import android.content.ClipData;
 import android.content.Context;
 import android.content.Intent;
 import android.net.Uri;
 import android.util.Log;
 
+import com.fuck.bili.ads.core.Host;
+import com.fuck.bili.ads.core.NativeHooks;
+import com.fuck.bili.ads.core.Reflect;
+
+import java.lang.reflect.Method;
 import java.net.HttpURLConnection;
 import java.net.URL;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
-
-import de.robv.android.xposed.XC_MethodHook;
-import de.robv.android.xposed.XposedBridge;
-import de.robv.android.xposed.XposedHelpers;
-import de.robv.android.xposed.callbacks.XC_LoadPackage;
 
 /** 弹幕发送者候选查询：客户端缓存、复制触发、主页检查及候选窗口。 */
 public final class DanmuSenderLookup {
@@ -75,7 +74,7 @@ public final class DanmuSenderLookup {
     private static void enableSpaceProbe(String processName) {
         if (spaceProbeEnabled) return;
         // attach() 返回时，ActivityThread.mInitialApplication 仍可能尚未赋值。
-        if (AndroidAppHelper.currentApplication() == null) {
+        if (Host.currentApplication() == null) {
             Log.d(TAG, "[SpaceProbe] application not ready, waiting: " + processName);
             return;
         }
@@ -89,27 +88,24 @@ public final class DanmuSenderLookup {
         }
     }
 
-    private static void installSpaceProbe(XC_LoadPackage.LoadPackageParam lpparam) {
-        final String processName = lpparam.processName;
-        if (!lpparam.packageName.equals(processName)
-                && !(lpparam.packageName + ":web").equals(processName)) return;
+    private static void installSpaceProbe(String packageName, String processName) {
+        if (!packageName.equals(processName)
+                && !(packageName + ":web").equals(processName)) return;
         try {
             final android.os.Handler mainHandler =
                     new android.os.Handler(android.os.Looper.getMainLooper());
-            XposedHelpers.findAndHookMethod(android.app.Application.class, "attach",
-                    Context.class, new XC_MethodHook() {
-                        @Override
-                        protected void afterHookedMethod(MethodHookParam param) {
-                            mainHandler.post(() -> enableSpaceProbe(processName));
-                        }
-                    });
-            XposedHelpers.findAndHookMethod(android.app.Activity.class, "onResume",
-                    new XC_MethodHook() {
-                        @Override
-                        protected void afterHookedMethod(MethodHookParam param) {
-                            enableSpaceProbe(processName);
-                        }
-                    });
+            Method attach = NativeHooks.method(android.app.Application.class, "attach", Context.class);
+            NativeHooks.hook("DanmuSenderLookup.ApplicationAttach", attach, chain -> {
+                Object result = chain.proceed();
+                mainHandler.post(() -> enableSpaceProbe(processName));
+                return result;
+            });
+            Method onResume = NativeHooks.method(android.app.Activity.class, "onResume");
+            NativeHooks.hook("DanmuSenderLookup.ActivityResume", onResume, chain -> {
+                Object result = chain.proceed();
+                enableSpaceProbe(processName);
+                return result;
+            });
             // 兼容安装 Hook 时 attach() 已经执行的情况。
             mainHandler.post(() -> enableSpaceProbe(processName));
             Log.d(TAG, "[SpaceProbe] lifecycle hooks installed: " + processName);
@@ -118,44 +114,42 @@ public final class DanmuSenderLookup {
         }
     }
 
-    public static void hook(XC_LoadPackage.LoadPackageParam lpparam, DexKitHelper helper) {
-        senderHostClassLoader = lpparam.classLoader;
+    public static void hook(String packageName, String processName, ClassLoader classLoader,
+                            DexKitHelper helper) {
+        senderHostClassLoader = classLoader;
         dexHelper = helper;
-        installSpaceProbe(lpparam);
-        new DanmuSenderLookup().installLookupHooks(lpparam, helper);
+        installSpaceProbe(packageName, processName);
+        new DanmuSenderLookup().installLookupHooks(packageName, classLoader, helper);
     }
 
-    private void installLookupHooks(XC_LoadPackage.LoadPackageParam lpparam, DexKitHelper helper) {
-        // 通用 RPC 数据分发处理
-        XC_MethodHook universalRpcHook = new XC_MethodHook() {
-            @Override
-            protected void beforeHookedMethod(MethodHookParam param) throws Throwable {
-                if (param.args == null || param.args.length < 3) return;
+    private void installLookupHooks(String packageName, ClassLoader classLoader, DexKitHelper helper) {
+        NativeHooks.Interceptor universalRpcHook = chain -> {
+            List<Object> args = chain.getArgs();
+            if (args.size() < 3) return chain.proceed();
 
-                Object payload = param.args[2];
-                if (payload == null) return;
+            Object payload = args.get(2);
+            if (payload == null) return chain.proceed();
 
-                String className = payload.getClass().getName();
-
-                if (className.endsWith("EventReport$Request")) {
-                    parseEventReport(payload);
-                }
+            String className = payload.getClass().getName();
+            if (className.endsWith("EventReport$Request")) {
+                parseEventReport(payload);
             }
+            return chain.proceed();
         };
 
-        if ("com.bilibili.app.in".equals(lpparam.packageName)) {
+        if ("com.bilibili.app.in".equals(packageName)) {
             try {
-                Class<?> function6Class = XposedHelpers.findClass("kotlin.jvm.functions.Function6", lpparam.classLoader);
-                Class<?> oClass = XposedHelpers.findClass(helper.INTERNATIONAL_CHRONOS_RPC_CLASS_NAME, lpparam.classLoader);
-
-                XposedHelpers.findAndHookMethod(oClass, helper.INTERNATIONAL_INVOKE_METHOD_NAME, Class.class, function6Class, new XC_MethodHook() {
-                    @Override
-                    protected void beforeHookedMethod(MethodHookParam param) throws Throwable {
-                        Object handlerImpl = param.args[1];
-                        if (handlerImpl != null) {
-                            XposedBridge.hookAllMethods(handlerImpl.getClass(), "invoke", universalRpcHook);
-                        }
+                Class<?> function6Class = Reflect.findClass("kotlin.jvm.functions.Function6", classLoader);
+                Class<?> oClass = Reflect.findClass(helper.INTERNATIONAL_CHRONOS_RPC_CLASS_NAME, classLoader);
+                Method invoke = NativeHooks.method(oClass, helper.INTERNATIONAL_INVOKE_METHOD_NAME,
+                        Class.class, function6Class);
+                NativeHooks.hook("DanmuSenderLookup.InternationalChronos", invoke, chain -> {
+                    List<Object> args = chain.getArgs();
+                    if (args.size() > 1 && args.get(1) != null) {
+                        NativeHooks.hookAllMethods("DanmuSenderLookup.InternationalHandlerInvoke",
+                                args.get(1).getClass(), "invoke", universalRpcHook);
                     }
+                    return chain.proceed();
                 });
             } catch (Throwable t) {
                 log("bilibili.in fails to pin: " + t.toString());
@@ -164,10 +158,10 @@ public final class DanmuSenderLookup {
             // 【新版本策略】：使用 DexKit 获取到的动态类名
             try {
                 if (helper.CHRONOS_RPC_CLASS_NAME != null && !helper.CHRONOS_RPC_CLASS_NAME.isEmpty()) {
-                    Class<?> targetClass = XposedHelpers.findClass(helper.CHRONOS_RPC_CLASS_NAME, lpparam.classLoader);
-                    for (java.lang.reflect.Method method : targetClass.getDeclaredMethods()) {
+                    Class<?> targetClass = Reflect.findClass(helper.CHRONOS_RPC_CLASS_NAME, classLoader);
+                    for (Method method : targetClass.getDeclaredMethods()) {
                         if (method.getName().equals("invoke")) {
-                            XposedBridge.hookMethod(method, universalRpcHook);
+                            NativeHooks.hook("DanmuSenderLookup.ChronosInvoke", method, universalRpcHook);
                             log("✅ Hook 新版 ChronosRpc 成功绑定类: " + helper.CHRONOS_RPC_CLASS_NAME);
                             break;
                         }
@@ -180,17 +174,17 @@ public final class DanmuSenderLookup {
             // 【旧版本策略】：硬编码挂载经典的 ChronosMessageHandler
             try {
                 String hardcodedTargetClass = "tv.danmaku.biliplayerv2.service.interact.biz.chronos.chronosrpc.ChronosMessageHandler";
-                Class<?> targetClass = XposedHelpers.findClass(hardcodedTargetClass, lpparam.classLoader);
-                XposedBridge.hookAllMethods(targetClass, "invoke", universalRpcHook);
+                Class<?> targetClass = Reflect.findClass(hardcodedTargetClass, classLoader);
+                NativeHooks.hookAllMethods("DanmuSenderLookup.LegacyChronosInvoke",
+                        targetClass, "invoke", universalRpcHook);
                 log("✅ Hook 旧版 ChronosRpc 成功硬编码绑定类: " + hardcodedTargetClass);
             } catch (Throwable t) {
                 log("Hook 旧版 ChronosRpc 失败 (新版可能不存在此旧类): " + t.getMessage());
             }
         }
-        installSenderActivityTracking(lpparam);
-        hookClipboardToJump(lpparam);
+        installSenderActivityTracking();
+        hookClipboardToJump(classLoader);
     }
-
 
     private void parseEventReport(Object payload) {
         try {
@@ -215,23 +209,26 @@ public final class DanmuSenderLookup {
                         RECENT_MSGS.put(msg, Long.parseLong(dmidStr));
                         RECENT_MSG_TIMES.put(msg, android.os.SystemClock.elapsedRealtime());
                         log("【状态记录】存入近期点击记录: " + msg + " -> " + dmidStr);
-                    } catch (Exception e) {
+                    } catch (Exception ignored) {
+                        Log.d(TAG, "record sender message failed: " + ignored);
                     }
                 }
             }
         } catch (Exception e) {
+            Log.d(TAG, "parse event report failed: " + e);
         }
     }
 
-    private void hookClipboardToJump(XC_LoadPackage.LoadPackageParam lpparam) {
+    private void hookClipboardToJump(ClassLoader classLoader) {
         try {
-            XposedHelpers.findAndHookMethod("android.content.ClipboardManager", lpparam.classLoader, "setPrimaryClip", ClipData.class, new XC_MethodHook() {
-                @Override
-                protected void afterHookedMethod(MethodHookParam param) throws Throwable {
-                    ClipData clipData = (ClipData) param.args[0];
-                    if (clipData != null && clipData.getItemCount() > 0) {
-                        CharSequence text = clipData.getItemAt(0).getText();
-                        if (text == null) return;
+            Class<?> type = Reflect.findClass("android.content.ClipboardManager", classLoader);
+            Method target = NativeHooks.method(type, "setPrimaryClip", ClipData.class);
+            NativeHooks.hook("DanmuSenderLookup.SetPrimaryClip", target, chain -> {
+                Object result = chain.proceed();
+                ClipData clipData = (ClipData) chain.getArg(0);
+                if (clipData != null && clipData.getItemCount() > 0) {
+                    CharSequence text = clipData.getItemAt(0).getText();
+                    if (text != null) {
                         final String copiedText = text.toString();
                         log("【剪贴板】检测到复制动作，内容: " + copiedText);
 
@@ -250,6 +247,7 @@ public final class DanmuSenderLookup {
                         }, 300);
                     }
                 }
+                return result;
             });
         } catch (Exception e) {
             log("剪贴板 Hook 失败: " + e.getMessage());
@@ -272,6 +270,7 @@ public final class DanmuSenderLookup {
                         added++;
                     }
                 } catch (NumberFormatException ignored) {
+                    Log.d(TAG, "skip invalid danmaku id: " + row.optString("id"));
                 }
             }
             log("【客户端弹幕】cid=" + batch.optString("videoId") + ", cached=" + added);
@@ -280,31 +279,30 @@ public final class DanmuSenderLookup {
         }
     }
 
-    private void installSenderActivityTracking(XC_LoadPackage.LoadPackageParam lpparam) {
+    private void installSenderActivityTracking() {
         try {
-            XposedHelpers.findAndHookMethod(android.app.Activity.class, "onResume",
-                    new XC_MethodHook() {
-                        @Override
-                        protected void afterHookedMethod(MethodHookParam param) {
-                            android.app.Activity activity = (android.app.Activity) param.thisObject;
-                            senderActivity = new java.lang.ref.WeakReference<>(activity);
-                            SenderSession session = senderSession;
-                            android.app.Activity owner = session == null ? null : session.owner.get();
-                            if (session != null && !session.closed && session.resumePending
-                                    && (owner == activity
-                                    || ((owner == null || owner.isDestroyed())
-                                    && session.ownerClass.equals(activity.getClass().getName())))) {
-                                session.owner = new java.lang.ref.WeakReference<>(activity);
-                                new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(() -> {
-                                    if (senderSession == session && !session.closed
-                                            && senderActivity.get() == activity) {
-                                        session.resumePending = false;
-                                        showSenderCandidates(activity, session, session.showingUnchecked);
-                                    }
-                                }, 250L);
-                            }
+            Method target = NativeHooks.method(android.app.Activity.class, "onResume");
+            NativeHooks.hook("DanmuSenderLookup.SenderActivityResume", target, chain -> {
+                Object result = chain.proceed();
+                android.app.Activity activity = (android.app.Activity) chain.getThisObject();
+                senderActivity = new java.lang.ref.WeakReference<>(activity);
+                SenderSession session = senderSession;
+                android.app.Activity owner = session == null ? null : session.owner.get();
+                if (session != null && !session.closed && session.resumePending
+                        && (owner == activity
+                        || ((owner == null || owner.isDestroyed())
+                        && session.ownerClass.equals(activity.getClass().getName())))) {
+                    session.owner = new java.lang.ref.WeakReference<>(activity);
+                    new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(() -> {
+                        if (senderSession == session && !session.closed
+                                && senderActivity.get() == activity) {
+                            session.resumePending = false;
+                            showSenderCandidates(activity, session, session.showingUnchecked);
                         }
-                    });
+                    }, 250L);
+                }
+                return result;
+            });
         } catch (Throwable t) {
             log("记录当前 Activity 失败: " + t);
         }
@@ -362,15 +360,15 @@ public final class DanmuSenderLookup {
 
             // 使用宿主同款拦截器添加公共参数、预加载参数及请求头。
             // 不在模块中硬编码签名或登录凭证，也不打印最终 URL/请求头。
-            Class<?> builderClass = XposedHelpers.findClass("okhttp3.Request$Builder", loader);
-            Object builder = XposedHelpers.newInstance(builderClass);
-            XposedHelpers.callMethod(builder, "url", url);
-            XposedHelpers.callMethod(builder, "get");
-            Object request = XposedHelpers.callMethod(builder, "build");
-            Object interceptor = XposedHelpers.newInstance(XposedHelpers.findClass(
+            Class<?> builderClass = Reflect.findClass("okhttp3.Request$Builder", loader);
+            Object builder = Reflect.newInstance(builderClass);
+            Reflect.callMethod(builder, "url", url);
+            Reflect.callMethod(builder, "get");
+            Object request = Reflect.callMethod(builder, "build");
+            Object interceptor = Reflect.newInstance(Reflect.findClass(
                     dexHelper.REQUEST_INTERCEPTOR, loader));
-            Object prepared = XposedHelpers.callMethod(interceptor, "intercept", request);
-            String preparedUrl = XposedHelpers.callMethod(prepared, "url").toString();
+            Object prepared = Reflect.callMethod(interceptor, "intercept", request);
+            String preparedUrl = Reflect.callMethod(prepared, "url").toString();
             URL parsedUrl = new URL(preparedUrl);
             if (!"https".equals(parsedUrl.getProtocol())
                     || !"app.bilibili.com".equals(parsedUrl.getHost())
@@ -382,11 +380,11 @@ public final class DanmuSenderLookup {
             connection.setInstanceFollowRedirects(false);
             connection.setConnectTimeout(5000);
             connection.setReadTimeout(5000);
-            Object headers = XposedHelpers.callMethod(prepared, "headers");
-            int headerCount = ((Number) XposedHelpers.callMethod(headers, "size")).intValue();
+            Object headers = Reflect.callMethod(prepared, "headers");
+            int headerCount = ((Number) Reflect.callMethod(headers, "size")).intValue();
             for (int i = 0; i < headerCount; i++) {
-                String key = (String) XposedHelpers.callMethod(headers, "name", i);
-                String value = (String) XposedHelpers.callMethod(headers, "value", i);
+                String key = (String) Reflect.callMethod(headers, "name", i);
+                String value = (String) Reflect.callMethod(headers, "value", i);
                 if (!"Host".equalsIgnoreCase(key) && !"Content-Length".equalsIgnoreCase(key)
                         && !"Accept-Encoding".equalsIgnoreCase(key)) {
                     connection.addRequestProperty(key, value);

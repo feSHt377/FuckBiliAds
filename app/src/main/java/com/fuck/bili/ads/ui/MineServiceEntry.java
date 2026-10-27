@@ -6,14 +6,13 @@ import android.os.Looper;
 import android.view.View;
 import android.view.ViewGroup;
 
+import com.fuck.bili.ads.core.NativeHooks;
+import com.fuck.bili.ads.core.Reflect;
+
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.util.ArrayList;
 import java.util.List;
-
-import de.robv.android.xposed.XC_MethodHook;
-import de.robv.android.xposed.XposedBridge;
-import de.robv.android.xposed.XposedHelpers;
 
 /**
  * Adds the module entry to 我的 → 更多服务.
@@ -21,11 +20,7 @@ import de.robv.android.xposed.XposedHelpers;
  * <p>The page is server-driven: {@code MenuGroup} cards carry a list of
  * {@code MenuGroup.Item} (title + icon + uri). Appending one item to the right
  * group therefore renders with the host's own grid item, and the click is
- * caught in {@code BLRouter} by its private uri.
- *
- * <p>The mine page reloads its data on every silent refresh, which throws away
- * injected items. The entry is therefore re-applied on every adapter bind and
- * on a short retry window after each resume, instead of a one-shot flag.
+ * attached directly to the injected row.
  */
 public final class MineServiceEntry {
 
@@ -34,7 +29,6 @@ public final class MineServiceEntry {
     private static final String FRAGMENT = "tv.danmaku.bili.ui.main2.mine.HomeUserCenterFragment";
     private static final String GROUP = "com.bilibili.lib.homepage.mine.MenuGroup";
     private static final String ITEM = "com.bilibili.lib.homepage.mine.MenuGroup$Item";
-    private static final String ROUTER = "com.bilibili.lib.blrouter.BLRouter";
 
     private static final String SETTINGS_URI = "bilibili://fuckbiliads/settings";
     private static final String ITEM_TITLE = "FuckBiliAds";
@@ -48,30 +42,32 @@ public final class MineServiceEntry {
     }
 
     public static void hook(ClassLoader classLoader) {
-        boolean router = hookRouter(classLoader);
+        boolean router = true; // routing is handled by the direct click hook
         boolean page = hookMinePage(classLoader);
         FbaRuntime.mark("设置入口", router && page);
     }
 
     private static boolean hookMinePage(ClassLoader classLoader) {
         try {
-            final Class<?> fragment = XposedHelpers.findClass(FRAGMENT, classLoader);
-            XposedBridge.hookAllMethods(fragment, "onViewCreated", new XC_MethodHook() {
-                @Override
-                protected void afterHookedMethod(MethodHookParam param) {
-                    if (isMineFragment(param.thisObject, fragment)) {
-                        schedule(param.thisObject);
-                    }
-                }
-            });
-            XposedBridge.hookAllMethods(fragment, "onResume", new XC_MethodHook() {
-                @Override
-                protected void afterHookedMethod(MethodHookParam param) {
-                    if (isMineFragment(param.thisObject, fragment)) {
-                        schedule(param.thisObject);
-                    }
-                }
-            });
+            final Class<?> fragment = Reflect.findClass(FRAGMENT, classLoader);
+            NativeHooks.hookAllMethods("MineServiceEntry.onViewCreated", fragment, "onViewCreated",
+                    chain -> {
+                        Object self = chain.getThisObject();
+                        Object result = chain.proceed();
+                        if (isMineFragment(self, fragment)) {
+                            schedule(self);
+                        }
+                        return result;
+                    });
+            NativeHooks.hookAllMethods("MineServiceEntry.onResume", fragment, "onResume",
+                    chain -> {
+                        Object self = chain.getThisObject();
+                        Object result = chain.proceed();
+                        if (isMineFragment(self, fragment)) {
+                            schedule(self);
+                        }
+                        return result;
+                    });
             FbaLog.i("mine entry hook installed");
             return true;
         } catch (Throwable t) {
@@ -83,75 +79,6 @@ public final class MineServiceEntry {
     /** The hooks may land on Fragment.onViewCreated, which every fragment calls. */
     private static boolean isMineFragment(Object fragment, Class<?> mineFragment) {
         return fragment != null && mineFragment.isInstance(fragment);
-    }
-
-    private static boolean hookRouter(ClassLoader classLoader) {
-        try {
-            Class<?> router = XposedHelpers.findClass(ROUTER, classLoader);
-            XposedBridge.hookAllMethods(router, "routeTo", new XC_MethodHook() {
-                @Override
-                protected void beforeHookedMethod(MethodHookParam param) {
-                    try {
-                        if (param.args.length == 0 || param.args[0] == null) {
-                            return;
-                        }
-                        Object uri = XposedHelpers.callMethod(param.args[0], "getTargetUri");
-                        if (uri == null || !SETTINGS_URI.equals(String.valueOf(uri))) {
-                            return;
-                        }
-                        final Context context = findContext(param.args);
-                        if (context != null) {
-                            MAIN.post(() -> {
-                                try {
-                                    FbaSettings.show(context);
-                                } catch (Throwable t) {
-                                    FbaLog.e("settings launch failed", t);
-                                }
-                            });
-                        }
-                        param.setResult(null);
-                    } catch (Throwable ignore) {
-                        // never break routing
-                    }
-                }
-            });
-            FbaLog.i("router hook installed");
-            return true;
-        } catch (Throwable t) {
-            FbaLog.e("router hook failed", t);
-            return false;
-        }
-    }
-
-    private static Context findContext(Object[] args) {
-        for (Object arg : args) {
-            if (arg instanceof Context) {
-                return (Context) arg;
-            }
-        }
-        // routeTo(RouteRequest, Fragment)
-        for (Object arg : args) {
-            if (arg == null || arg instanceof CharSequence) {
-                continue;
-            }
-            try {
-                Object context = XposedHelpers.callMethod(arg, "getContext");
-                if (context instanceof Context) {
-                    return (Context) context;
-                }
-            } catch (Throwable ignore) {
-                // not a fragment
-            }
-            try {
-                Object activity = XposedHelpers.callMethod(arg, "getActivity");
-                if (activity instanceof Context) {
-                    return (Context) activity;
-                }
-            } catch (Throwable ignore) {
-                // not a fragment
-            }
-        }
-        return null;
     }
 
     /** Retries while the server-driven list is still loading. */
@@ -167,7 +94,7 @@ public final class MineServiceEntry {
             if (fragment == null) {
                 return;
             }
-            Object view = XposedHelpers.callMethod(fragment, "getView");
+            Object view = Reflect.tryCallMethod(fragment, "getView");
             if (!(view instanceof View)) {
                 return;
             }
@@ -196,49 +123,39 @@ public final class MineServiceEntry {
         }
         HOOKED.add(type);
         try {
-            XposedBridge.hookAllMethods(type, "onBindViewHolder", new XC_MethodHook() {
-                @Override
-                protected void beforeHookedMethod(MethodHookParam param) {
-                    try {
-                        Object self = param.thisObject;
-                        if (self == null) {
-                            return;
+            NativeHooks.hookAllMethods("MineServiceEntry.onBindViewHolder", type, "onBindViewHolder",
+                    chain -> {
+                        Object self = chain.getThisObject();
+                        try {
+                            if (self != null) {
+                                long now = System.currentTimeMillis();
+                                if (now - lastEnsureAt >= 400L) {
+                                    lastEnsureAt = now;
+                                    ensure(self, false);
+                                }
+                            }
+                        } catch (Throwable t) {
+                            FbaLog.e("mine entry bind ensure failed", t);
                         }
-                        long now = System.currentTimeMillis();
-                        if (now - lastEnsureAt < 400L) {
-                            return;
+                        Object result = chain.proceed();
+                        try {
+                            List<Object> args = chain.getArgs();
+                            Object holder = args.isEmpty() ? null : args.get(0);
+                            Object position = args.size() > 1 ? args.get(1) : null;
+                            if (holder != null && position instanceof Integer) {
+                                final Object adapterRef = self;
+                                final Object holderRef = holder;
+                                final int index = (Integer) position;
+                                Handler handler = FbaRuntime.handler();
+                                if (handler != null) {
+                                    handler.postDelayed(() -> attachClick(adapterRef, holderRef, index, 0), 60L);
+                                }
+                            }
+                        } catch (Throwable t) {
+                            FbaLog.e("mine entry click schedule failed", t);
                         }
-                        lastEnsureAt = now;
-                        ensure(self, false);
-                    } catch (Throwable ignore) {
-                        // never disturb the list
-                    }
-                }
-
-                @Override
-                protected void afterHookedMethod(MethodHookParam param) {
-                    // The host routes grid items through its own page manager and
-                    // ignores unknown uris, so the click is attached directly to
-                    // our item view instead of relying on BLRouter.
-                    try {
-                        Object holder = param.args.length > 0 ? param.args[0] : null;
-                        Object position = param.args.length > 1 ? param.args[1] : null;
-                        if (holder == null || !(position instanceof Integer)) {
-                            return;
-                        }
-                        final Object adapterRef = param.thisObject;
-                        final Object holderRef = holder;
-                        final int index = (Integer) position;
-                        android.os.Handler handler = FbaRuntime.handler();
-                        if (handler == null) {
-                            return;
-                        }
-                        handler.postDelayed(() -> attachClick(adapterRef, holderRef, index, 0), 60L);
-                    } catch (Throwable ignore) {
-                        // never disturb the list
-                    }
-                }
-            });
+                        return result;
+                    });
             FbaLog.i("mine adapter bound: " + type.getName());
         } catch (Throwable t) {
             FbaLog.e("mine bind hook failed", t);
@@ -256,7 +173,7 @@ public final class MineServiceEntry {
             if (index < 0) {
                 return;
             }
-            Object root = XposedHelpers.getObjectField(holder, "itemView");
+            Object root = Reflect.tryGetObjectField(holder, "itemView");
             if (!(root instanceof View)) {
                 return;
             }
@@ -264,17 +181,12 @@ public final class MineServiceEntry {
             if (recycler == null) {
                 return;
             }
-            Object viewHolder = null;
-            try {
-                viewHolder = XposedHelpers.callMethod(recycler, "findViewHolderForAdapterPosition", index);
-            } catch (Throwable ignore) {
-                // fall back to a retry below
-            }
+            Object viewHolder = Reflect.tryCallMethod(recycler, "findViewHolderForAdapterPosition", index);
             Object itemView = viewHolder == null ? null
-                    : XposedHelpers.getObjectField(viewHolder, "itemView");
+                    : Reflect.tryGetObjectField(viewHolder, "itemView");
             if (!(itemView instanceof View)) {
                 if (attempt < 5) {
-                    android.os.Handler handler = FbaRuntime.handler();
+                    Handler handler = FbaRuntime.handler();
                     if (handler != null) {
                         handler.postDelayed(() -> attachClick(adapter, holder, position, attempt + 1), 120L);
                     }
@@ -316,32 +228,30 @@ public final class MineServiceEntry {
             return;
         }
         try {
-            XposedBridge.hookMethod(onClick, new XC_MethodHook() {
-                @Override
-                protected void beforeHookedMethod(MethodHookParam param) {
-                    try {
-                        Object item = itemField(param.thisObject);
-                        if (item == null || !SETTINGS_URI.equals(field(item, "uri"))) {
-                            return;
-                        }
-                        Context context = null;
-                        try {
-                            Object itemView = XposedHelpers.getObjectField(param.thisObject, "itemView");
-                            if (itemView instanceof View) {
-                                context = ((View) itemView).getContext();
-                            }
-                        } catch (Throwable ignore) {
-                            // fall back to the app context
-                        }
-                        if (context == null) {
-                            context = FbaRuntime.context();
-                        }
-                        FbaLog.i("mine entry clicked");
-                        FbaSettings.show(context);
-                        param.setResult(null);
-                    } catch (Throwable t) {
-                        FbaLog.e("mine entry click hook failed", t);
+            NativeHooks.hook("MineServiceEntry.onClick", onClick, chain -> {
+                try {
+                    Object item = itemField(chain.getThisObject());
+                    if (item == null || !SETTINGS_URI.equals(field(item, "uri"))) {
+                        return chain.proceed();
                     }
+                    Context context = null;
+                    try {
+                        Object itemView = Reflect.tryGetObjectField(chain.getThisObject(), "itemView");
+                        if (itemView instanceof View) {
+                            context = ((View) itemView).getContext();
+                        }
+                    } catch (Throwable ignore) {
+                        // fall back to the app context
+                    }
+                    if (context == null) {
+                        context = FbaRuntime.context();
+                    }
+                    FbaLog.i("mine entry clicked");
+                    FbaSettings.show(context);
+                    return null;
+                } catch (Throwable t) {
+                    FbaLog.e("mine entry click hook failed", t);
+                    return chain.proceed();
                 }
             });
             FbaLog.i("mine holder click hooked: " + type.getName() + "." + onClick.getName());
@@ -432,7 +342,7 @@ public final class MineServiceEntry {
         }
         if (notify) {
             try {
-                XposedHelpers.callMethod(adapter, "notifyItemChanged", index);
+                Reflect.callMethod(adapter, "notifyItemChanged", index);
             } catch (Throwable t) {
                 FbaLog.d("notifyItemChanged failed: " + t);
             }
@@ -447,7 +357,7 @@ public final class MineServiceEntry {
             View view = stack.remove(stack.size() - 1);
             if (view.getClass().getName().endsWith("RecyclerView")) {
                 try {
-                    Object adapter = XposedHelpers.callMethod(view, "getAdapter");
+                    Object adapter = Reflect.callMethod(view, "getAdapter");
                     if (adapter != null && menuGroups(adapter) != null) {
                         return adapter;
                     }
@@ -570,8 +480,8 @@ public final class MineServiceEntry {
         }
         try {
             ClassLoader cl = context.getClassLoader();
-            Class<?> itemClass = XposedHelpers.findClass(ITEM, cl);
-            Object item = XposedHelpers.newInstance(itemClass);
+            Class<?> itemClass = Reflect.findClass(ITEM, cl);
+            Object item = Reflect.newInstance(itemClass);
             setField(item, new String[]{"id", "f267193id"}, ITEM_ID);
             setField(item, new String[]{"title"}, ITEM_TITLE);
             setField(item, new String[]{"uri"}, SETTINGS_URI);

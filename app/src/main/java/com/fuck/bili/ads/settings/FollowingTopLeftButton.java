@@ -11,12 +11,13 @@ import android.view.View;
 import android.view.ViewGroup;
 import android.widget.TextView;
 
+import com.fuck.bili.ads.core.NativeHooks;
+import com.fuck.bili.ads.core.Reflect;
+
+import java.lang.reflect.Method;
 import java.util.Collections;
 import java.util.IdentityHashMap;
 import java.util.Set;
-
-import de.robv.android.xposed.XC_MethodHook;
-import de.robv.android.xposed.XposedHelpers;
 
 /** Adds the following-feed filter settings button to ExhibitionFragment. */
 public final class FollowingTopLeftButton {
@@ -27,22 +28,28 @@ public final class FollowingTopLeftButton {
 
     public static void hook(ClassLoader classLoader) {
         try {
-            Class<?> fragment = XposedHelpers.findClass(
+            Class<?> fragment = Reflect.findClass(
                     "com.bilibili.bplus.following.home.ui.exhibition.ExhibitionFragment", classLoader);
             synchronized (HOOKED) {
                 if (HOOKED.contains(fragment)) return;
-                XposedHelpers.findAndHookMethod(fragment, "onCreateView",
-                        LayoutInflater.class, ViewGroup.class, Bundle.class, new XC_MethodHook() {
-                            @Override
-                            protected void afterHookedMethod(MethodHookParam param) {
-                                if (param.hasThrowable() || !(param.getResult() instanceof View)) return;
-                                try {
-                                    addButton((View) param.getResult());
-                                } catch (Throwable t) {
-                                    Log.e(TAG, "Failed to add settings button", t);
-                                }
-                            }
-                        });
+                Method onCreateView = NativeHooks.method(fragment, "onCreateView",
+                        LayoutInflater.class, ViewGroup.class, Bundle.class);
+                NativeHooks.hook("FollowingTopLeftButton.onCreateView", onCreateView, chain -> {
+                    Object result;
+                    try {
+                        result = chain.proceed();
+                    } catch (Throwable t) {
+                        Log.e(TAG, "Following fragment onCreateView failed", t);
+                        throw t;
+                    }
+                    if (!(result instanceof View)) return result;
+                    try {
+                        addButton((View) result);
+                    } catch (Throwable t) {
+                        Log.e(TAG, "Failed to add settings button", t);
+                    }
+                    return result;
+                });
                 HOOKED.add(fragment);
             }
             Log.d(TAG, "ExhibitionFragment.onCreateView hook installed");
@@ -78,11 +85,25 @@ public final class FollowingTopLeftButton {
 
         Context context = root.getContext();
         int size = dp(context, 48);
-        ViewGroup.LayoutParams buttonParams = (ViewGroup.LayoutParams) XposedHelpers.newInstance(
-                existing.getClass(), size, size);
-        XposedHelpers.setIntField(buttonParams, "startToStart", 0);
-        XposedHelpers.setIntField(buttonParams, "topToTop", 0);
-        XposedHelpers.setIntField(buttonParams, "bottomToBottom", 0);
+        Object created = null;
+        try {
+            created = Reflect.newInstance(existing.getClass(), size, size);
+        } catch (Throwable t) {
+            Log.e(TAG, "Unable to create constraint layout params", t);
+            return;
+        }
+        if (!(created instanceof ViewGroup.LayoutParams)) {
+            Log.e(TAG, "Unexpected layout params type: " + created.getClass().getName());
+            return;
+        }
+        ViewGroup.LayoutParams buttonParams = (ViewGroup.LayoutParams) created;
+        try {
+            Reflect.setIntField(buttonParams, "startToStart", 0);
+            Reflect.setIntField(buttonParams, "topToTop", 0);
+            Reflect.setIntField(buttonParams, "bottomToBottom", 0);
+        } catch (Throwable t) {
+            Log.d(TAG, "Constraint params fields unavailable: " + t);
+        }
 
         TextView button = new TextView(context);
         button.setId(View.generateViewId());
@@ -123,8 +144,8 @@ public final class FollowingTopLeftButton {
         params.setMarginEnd(Math.max(params.getMarginEnd(), inset));
         // ConstraintLayout wrap_content must respect its two side constraints.
         try {
-            XposedHelpers.setBooleanField(params, "constrainedWidth", true);
-        } catch (NoSuchFieldError ignored) {
+            Reflect.setBooleanField(params, "constrainedWidth", true);
+        } catch (Throwable ignored) {
             Log.d(TAG, "constrainedWidth unavailable in host ConstraintLayout");
         }
         view.setLayoutParams(params);

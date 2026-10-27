@@ -122,6 +122,10 @@ public final class FbaSettings {
                     "每次剔除广告卡时用 Toast 告知剔除了几条，并写入日志",
                     FbaPrefs.storyFilterToast(), titleColor, subColor, divider,
                     checked -> FbaPrefs.setStoryFilterToast(checked)));
+            content.addView(switchRow(context, "剔除提示附带位置",
+                    "在提示后追加（后x条），表示该广告距当前视频的位置；默认关闭",
+                    FbaPrefs.storyFilterOffset(), titleColor, subColor, divider,
+                    checked -> FbaPrefs.setStoryFilterOffset(checked)));
             content.addView(switchRow(context, "跳过时提示",
                     "使用 B 站自带的底部 Toast",
                     FbaPrefs.storyToast(), titleColor, subColor, divider,
@@ -154,9 +158,11 @@ public final class FbaSettings {
                     "验证 ToastHelper 是否可用",
                     titleColor, subColor, divider, v -> testToast(context)));
             content.addView(actionRow(context, "测试剔除提示",
-                    "按「剔除 3 条」触发一次 Toast，不改动播放列表",
+                    FbaPrefs.storyFilterOffset()
+                            ? "按「剔除 3 条（后 3 条）」触发一次 Toast，不改动播放列表"
+                            : "按「剔除 3 条」触发一次 Toast，不改动播放列表",
                     titleColor, subColor, divider,
-                    v -> StoryAdFilter.debugToast(activityOf(context), 3)));
+                    v -> StoryAdFilter.debugToast(activityOf(context), 3, 3)));
 
             // ---- 诊断 ----
             content.addView(section(context, "诊断", subColor));

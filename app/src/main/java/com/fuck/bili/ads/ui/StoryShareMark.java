@@ -15,6 +15,8 @@ import android.widget.FrameLayout;
 import android.widget.TextView;
 import android.widget.Toast;
 
+import com.fuck.bili.ads.core.NativeHooks;
+import com.fuck.bili.ads.core.Reflect;
 import com.fuck.bili.ads.story.StoryAdSniper;
 import com.fuck.bili.ads.story.StoryDebug;
 
@@ -22,10 +24,6 @@ import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
 import java.util.Map;
 import java.util.WeakHashMap;
-
-import de.robv.android.xposed.XC_MethodHook;
-import de.robv.android.xposed.XposedBridge;
-import de.robv.android.xposed.XposedHelpers;
 
 /**
  * "标记广告" chip shown together with the story share sheet.
@@ -72,7 +70,7 @@ public final class StoryShareMark {
      */
     private static boolean hookActionHelper(ClassLoader classLoader) {
         try {
-            Class<?> helper = XposedHelpers.findClass(ACTION_HELPER, classLoader);
+            Class<?> helper = Reflect.findClass(ACTION_HELPER, classLoader);
             for (final Method method : helper.getDeclaredMethods()) {
                 if (!Modifier.isStatic(method.getModifiers())) {
                     continue;
@@ -85,18 +83,17 @@ public final class StoryShareMark {
                         || !params[1].getName().endsWith("StoryShareFrom")) {
                     continue;
                 }
-                XposedBridge.hookMethod(method, new XC_MethodHook() {
-                    @Override
-                    protected void afterHookedMethod(MethodHookParam param) {
-                        try {
-                            Activity activity = storyActivity();
-                            if (activity != null) {
-                                showChip(activity);
-                            }
-                        } catch (Throwable ignore) {
-                            // never disturb the host
+                NativeHooks.hook("StoryShareMark.ActionHelper", method, chain -> {
+                    Object result = chain.proceed();
+                    try {
+                        Activity activity = storyActivity();
+                        if (activity != null) {
+                            showChip(activity);
                         }
+                    } catch (Throwable t) {
+                        FbaLog.d("share mark helper callback failed: " + t);
                     }
+                    return result;
                 });
                 FbaLog.i("share mark anchored on " + method.getDeclaringClass().getName()
                         + "." + method.getName());
@@ -114,23 +111,23 @@ public final class StoryShareMark {
         boolean any = false;
         for (String name : CONTROLLERS) {
             try {
-                Class<?> controller = XposedHelpers.findClass(name, classLoader);
-                XposedBridge.hookAllMethods(controller, "n", new XC_MethodHook() {
-                    @Override
-                    protected void afterHookedMethod(MethodHookParam param) {
-                        try {
-                            Activity activity = storyActivity();
-                            if (activity != null) {
-                                showChip(activity);
+                Class<?> controller = Reflect.findClass(name, classLoader);
+                NativeHooks.hookAllMethods("StoryShareMark.ControllerN", controller, "n",
+                        chain -> {
+                            Object result = chain.proceed();
+                            try {
+                                Activity activity = storyActivity();
+                                if (activity != null) {
+                                    showChip(activity);
+                                }
+                            } catch (Throwable t) {
+                                FbaLog.d("share mark controller callback failed: " + t);
                             }
-                        } catch (Throwable ignore) {
-                            // never disturb the host
-                        }
-                    }
-                });
+                            return result;
+                        });
                 any = true;
-            } catch (Throwable ignore) {
-                // class renamed in this build
+            } catch (Throwable t) {
+                FbaLog.d("share controller unavailable: " + name + ": " + t);
             }
         }
         return any;
@@ -138,13 +135,13 @@ public final class StoryShareMark {
 
     private static boolean hookDismiss(ClassLoader classLoader) {
         try {
-            Class<?> coordinator = XposedHelpers.findClass(COORDINATOR, classLoader);
-            XposedBridge.hookAllMethods(coordinator, "b", new XC_MethodHook() {
-                @Override
-                protected void afterHookedMethod(MethodHookParam param) {
-                    hideAll();
-                }
-            });
+            Class<?> coordinator = Reflect.findClass(COORDINATOR, classLoader);
+            NativeHooks.hookAllMethods("StoryShareMark.Dismiss", coordinator, "b",
+                    chain -> {
+                        Object result = chain.proceed();
+                        hideAll();
+                        return result;
+                    });
             return true;
         } catch (Throwable t) {
             FbaLog.d("share dismiss hook skipped: " + t);
@@ -154,16 +151,16 @@ public final class StoryShareMark {
 
     private static void hookPause() {
         try {
-            XposedBridge.hookAllMethods(Activity.class, "onPause", new XC_MethodHook() {
-                @Override
-                protected void afterHookedMethod(MethodHookParam param) {
-                    if (param.thisObject instanceof Activity) {
-                        hide((Activity) param.thisObject);
-                    }
-                }
-            });
-        } catch (Throwable ignore) {
-            // framework hooks may be unavailable
+            NativeHooks.hookAllMethods("StoryShareMark.Pause", Activity.class, "onPause",
+                    chain -> {
+                        Object result = chain.proceed();
+                        if (chain.getThisObject() instanceof Activity) {
+                            hide((Activity) chain.getThisObject());
+                        }
+                        return result;
+                    });
+        } catch (Throwable t) {
+            FbaLog.d("share pause hook skipped: " + t);
         }
     }
 

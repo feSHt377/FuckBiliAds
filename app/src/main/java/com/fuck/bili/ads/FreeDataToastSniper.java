@@ -2,36 +2,30 @@ package com.fuck.bili.ads;
 
 import android.util.Log;
 
-import org.luckypray.dexkit.query.matchers.ClassMatcher;
+import com.fuck.bili.ads.core.NativeHooks;
+import com.fuck.bili.ads.core.Reflect;
 
-import de.robv.android.xposed.XC_MethodHook;
-import de.robv.android.xposed.XposedHelpers;
+import java.lang.reflect.Method;
 
 public class FreeDataToastSniper {
     private static final String TAG = "FreeDataToast";
 
-    public static void hook(ClassLoader classLoader,DexKitHelper helper) {
+    public static void hook(ClassLoader classLoader, DexKitHelper helper) {
         Log.i(TAG, "开始注册 Hook，loader=" + classLoader);
 
         try {
-            final Object unitInstance = XposedHelpers.getStaticObjectField(
-                    XposedHelpers.findClass("kotlin.Unit", classLoader),
-                    "INSTANCE"
-            );
-
-            XposedHelpers.findAndHookMethod(
-                    helper.NETWORK_SHOW_TOAST_SERVICE_CLASS_NAME,
-                    classLoader,
-                    helper.NETWORK_SHOW_TOAST_SERVICE_METHOD_NAME,
-                    "kotlin.coroutines.jvm.internal.ContinuationImpl",
-                    new XC_MethodHook() {
-                        @Override
-                        protected void beforeHookedMethod(MethodHookParam param) {
-                            Log.i(TAG, "命中并拦截：" + param.method);
-                            param.setResult(unitInstance);
-                        }
-                    }
-            );
+            Class<?> unitClass = Reflect.findClass("kotlin.Unit", classLoader);
+            final Object unitInstance = Reflect.getStaticObjectField(unitClass, "INSTANCE");
+            Class<?> service = Reflect.findClass(helper.NETWORK_SHOW_TOAST_SERVICE_CLASS_NAME, classLoader);
+            Class<?> continuation = Reflect.findClass(
+                    "kotlin.coroutines.jvm.internal.ContinuationImpl", classLoader);
+            Method method = NativeHooks.method(service,
+                    helper.NETWORK_SHOW_TOAST_SERVICE_METHOD_NAME, continuation);
+            NativeHooks.hook("FreeDataToastSniper." + helper.NETWORK_SHOW_TOAST_SERVICE_METHOD_NAME,
+                    method, chain -> {
+                        Log.i(TAG, "命中并拦截：" + chain.getExecutable());
+                        return unitInstance;
+                    });
 
             Log.i(TAG, "Hook 注册成功");
         } catch (Throwable t) {

@@ -15,14 +15,14 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
-import android.app.AndroidAppHelper;
+import com.fuck.bili.ads.core.Host;
 
 /**
  * Runtime plumbing shared by every feature: application context, hook status,
  * foreground activity/window, and the "module loaded" announcement.
  *
  * <p>Context resolution goes through several paths because the module runs on
- * different loaders (LSPosed, LSPatch, ...) where {@code AndroidAppHelper} is
+ * different loaders (LSPosed, LSPatch, ...) where the helper class is
  * not always available.
  */
 public final class FbaRuntime {
@@ -50,7 +50,7 @@ public final class FbaRuntime {
             return application;
         }
         try {
-            Context ctx = AndroidAppHelper.currentApplication();
+            Context ctx = Host.currentApplication();
             if (ctx != null) {
                 application = ctx.getApplicationContext();
                 return application;

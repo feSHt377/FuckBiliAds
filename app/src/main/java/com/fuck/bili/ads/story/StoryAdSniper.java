@@ -10,6 +10,8 @@ import android.util.Log;
 import android.view.View;
 import android.view.ViewGroup;
 
+import com.fuck.bili.ads.core.NativeHooks;
+import com.fuck.bili.ads.core.Reflect;
 import com.fuck.bili.ads.ui.FbaLog;
 import com.fuck.bili.ads.ui.FbaPrefs;
 import com.fuck.bili.ads.ui.FbaRuntime;
@@ -17,10 +19,6 @@ import com.fuck.bili.ads.ui.FbaRuntime;
 import java.lang.reflect.Method;
 import java.util.HashMap;
 import java.util.Map;
-
-import de.robv.android.xposed.XC_MethodHook;
-import de.robv.android.xposed.XposedBridge;
-import de.robv.android.xposed.XposedHelpers;
 
 /**
  * Skips ads inside the vertical short-video page (故事模式 / 小视频).
@@ -76,7 +74,7 @@ public final class StoryAdSniper {
     public static void hook(ClassLoader classLoader) {
         Class<?> resolved = null;
         try {
-            resolved = XposedHelpers.findClass(STORY_ACTIVITY, classLoader);
+            resolved = Reflect.findClass(STORY_ACTIVITY, classLoader);
         } catch (Throwable t) {
             // Host renamed the page: keep working through the package prefix.
             FbaLog.w("story: page class missing, matching by name");
@@ -153,7 +151,7 @@ public final class StoryAdSniper {
         Class<?> page = storyActivity;
         if (page == null) {
             try {
-                page = XposedHelpers.findClass(STORY_ACTIVITY, classLoader);
+                page = Reflect.findClass(STORY_ACTIVITY, classLoader);
             } catch (Throwable t) {
                 return false;
             }
@@ -168,27 +166,29 @@ public final class StoryAdSniper {
 
     private static int hookApp(Class<?> page, String method, Class<?>[] params, final boolean resume) {
         try {
-            Object[] args = new Object[params.length + 1];
-            System.arraycopy(params, 0, args, 0, params.length);
-            args[params.length] = new XC_MethodHook() {
-                @Override
-                protected void afterHookedMethod(MethodHookParam param) {
-                    try {
-                        if (!(param.thisObject instanceof Activity)) {
-                            return;
-                        }
-                        Activity activity = (Activity) param.thisObject;
-                        if (resume) {
-                            attach(activity);
-                        } else {
-                            detach(activity);
-                        }
-                    } catch (Throwable ignore) {
-                        // never disturb the host
+            Method target = params.length == 0
+                    ? NativeHooks.method(page, method)
+                    : NativeHooks.method(page, method, params);
+            NativeHooks.hook("StoryAdSniper." + method, target, chain -> {
+                Object result = chain.proceed();
+                try {
+                    if (!(chain.getThisObject() instanceof Activity)) {
+                        return result;
                     }
+                    Activity activity = (Activity) chain.getThisObject();
+                    if (!isStoryActivity(activity)) {
+                        return result;
+                    }
+                    if (resume) {
+                        attach(activity);
+                    } else {
+                        detach(activity);
+                    }
+                } catch (Throwable t) {
+                    FbaLog.d("story lifecycle callback failed: " + t);
                 }
-            };
-            XposedHelpers.findAndHookMethod(page, method, args);
+                return result;
+            });
             FbaLog.d("story: hooked " + page.getName() + "." + method);
             return 1;
         } catch (Throwable t) {
@@ -209,26 +209,25 @@ public final class StoryAdSniper {
 
     private static boolean hookFramework(String method, final boolean resume) {
         try {
-            XposedBridge.hookAllMethods(Activity.class, method, new XC_MethodHook() {
-                @Override
-                protected void afterHookedMethod(MethodHookParam param) {
-                    try {
-                        Object self = param.thisObject;
-                        if (!(self instanceof Activity) || !isStoryActivity((Activity) self)) {
-                            return;
-                        }
+            int hooks = NativeHooks.hookAllMethods("StoryAdSniper.Framework." + method,
+                    Activity.class, method, chain -> {
+                Object result = chain.proceed();
+                try {
+                    Object self = chain.getThisObject();
+                    if (self instanceof Activity && isStoryActivity((Activity) self)) {
                         Activity activity = (Activity) self;
                         if (resume) {
                             attach(activity);
                         } else {
                             detach(activity);
                         }
-                    } catch (Throwable ignore) {
-                        // never disturb the host
                     }
+                } catch (Throwable t) {
+                    FbaLog.d("story framework callback failed: " + t);
                 }
+                return result;
             });
-            return true;
+            return hooks > 0;
         } catch (Throwable t) {
             FbaLog.d("story: framework hook " + method + " failed: " + t);
             return false;
@@ -241,24 +240,7 @@ public final class StoryAdSniper {
      */
     private static boolean hookRecyclerAttach(ClassLoader classLoader) {
         try {
-            final Class<?> recycler = XposedHelpers.findClass(RV_CLASS, classLoader);
-            XC_MethodHook callback = new XC_MethodHook() {
-                @Override
-                protected void afterHookedMethod(MethodHookParam param) {
-                    try {
-                        Object self = param.thisObject;
-                        if (!(self instanceof ViewGroup)) {
-                            return;
-                        }
-                        Activity activity = activityOf(((View) self).getContext());
-                        if (activity != null && isStoryActivity(activity)) {
-                            attach(activity);
-                        }
-                    } catch (Throwable ignore) {
-                        // never disturb the host
-                    }
-                }
-            };
+            final Class<?> recycler = Reflect.findClass(RV_CLASS, classLoader);
             // Only hook the override declared by RecyclerView itself, never
             // View.onAttachedToWindow (that would fire for every view).
             boolean any = false;
@@ -266,7 +248,21 @@ public final class StoryAdSniper {
                 if (!"onAttachedToWindow".equals(m.getName())) {
                     continue;
                 }
-                XposedBridge.hookMethod(m, callback);
+                NativeHooks.hook("StoryAdSniper.RecyclerAttach", m, chain -> {
+                    Object result = chain.proceed();
+                    try {
+                        Object self = chain.getThisObject();
+                        if (self instanceof ViewGroup) {
+                            Activity activity = activityOf(((View) self).getContext());
+                            if (activity != null && isStoryActivity(activity)) {
+                                attach(activity);
+                            }
+                        }
+                    } catch (Throwable t) {
+                        FbaLog.d("story recycler attach callback failed: " + t);
+                    }
+                    return result;
+                });
                 any = true;
             }
             return any;

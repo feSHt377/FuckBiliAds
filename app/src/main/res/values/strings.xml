@@ -1,3 +1,4 @@
 <resources>
     <string name="app_name">FuckBiliAds</string>
+    <string name="xposed_description" translatable="false">去除B站广告 · 小视频广告自动跳过 · 查看弹幕发送者</string>
 </resources>

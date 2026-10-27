@@ -7,15 +7,14 @@ import android.graphics.drawable.LayerDrawable;
 import android.util.Log;
 import android.view.View;
 import android.view.Window;
+
+import com.fuck.bili.ads.core.NativeHooks;
+import com.fuck.bili.ads.core.Reflect;
+import com.fuck.bili.ads.ui.FbaPrefs;
+
 import java.lang.reflect.Method;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
-
-import com.fuck.bili.ads.ui.FbaPrefs;
-
-import de.robv.android.xposed.XC_MethodHook;
-import de.robv.android.xposed.XposedBridge;
-import de.robv.android.xposed.XposedHelpers;
 
 /** 只拦截两个开屏接口；展示层跳过继续作为缓存广告兜底。 */
 public final class BiliSplashSniper {
@@ -51,12 +50,12 @@ public final class BiliSplashSniper {
     /** 在 OkHttp 调用链继续执行前返回成功的空响应，不进入后续网络链。 */
     private static void installRequestBlock(ClassLoader loader) {
         try {
-            final Class<?> requestClass = XposedHelpers.findClass("okhttp3.Request", loader);
-            final Class<?> responseClass = XposedHelpers.findClass("okhttp3.Response", loader);
-            final Class<?> builderClass = XposedHelpers.findClass("okhttp3.Response$Builder", loader);
-            final Class<?> mediaClass = XposedHelpers.findClass("okhttp3.MediaType", loader);
-            final Class<?> bodyClass = XposedHelpers.findClass("okhttp3.ResponseBody", loader);
-            final Class<?> protocolClass = XposedHelpers.findClass("okhttp3.Protocol", loader);
+            final Class<?> requestClass = Reflect.findClass("okhttp3.Request", loader);
+            final Class<?> responseClass = Reflect.findClass("okhttp3.Response", loader);
+            final Class<?> builderClass = Reflect.findClass("okhttp3.Response$Builder", loader);
+            final Class<?> mediaClass = Reflect.findClass("okhttp3.MediaType", loader);
+            final Class<?> bodyClass = Reflect.findClass("okhttp3.ResponseBody", loader);
+            final Class<?> protocolClass = Reflect.findClass("okhttp3.Protocol", loader);
             final Method parseMedia = mediaClass.getMethod("parse", String.class);
             final Method createBody = bodyClass.getMethod("create", mediaClass, String.class);
             final Object jsonMedia = parseMedia.invoke(null, "application/json; charset=utf-8");
@@ -69,7 +68,7 @@ public final class BiliSplashSniper {
             builderClass.getMethod("message", String.class);
             builderClass.getMethod("body", bodyClass);
             builderClass.getMethod("build");
-            final Class<?> clientBuilder = XposedHelpers.findClass("okhttp3.OkHttpClient$Builder", loader);
+            final Class<?> clientBuilder = Reflect.findClass("okhttp3.OkHttpClient$Builder", loader);
             // 从公开 addInterceptor API 获取接口类型，不依赖 Interceptor/Chain 的实际类名。
             Method addInterceptor = null;
             for (Method method : clientBuilder.getMethods()) {
@@ -110,10 +109,10 @@ public final class BiliSplashSniper {
                         String path;
                         boolean target;
                         try {
-                            Object url = XposedHelpers.callMethod(request, "url");
-                            String host = (String) XposedHelpers.callMethod(url, "host");
-                            path = (String) XposedHelpers.callMethod(url, "encodedPath");
-                            String requestMethod = (String) XposedHelpers.callMethod(request, "method");
+                            Object url = Reflect.callMethod(request, "url");
+                            String host = (String) Reflect.callMethod(url, "host");
+                            path = (String) Reflect.callMethod(url, "encodedPath");
+                            String requestMethod = (String) Reflect.callMethod(url, "method");
                             target = isTarget(host, path, requestMethod);
                         } catch (Throwable error) {
                             Log.d(TAG, "[SplashBlock] request inspection failed: " + error);
@@ -125,14 +124,14 @@ public final class BiliSplashSniper {
                             String json = emptyResponse(path);
                             Object body = createBody.invoke(null, jsonMedia, json);
                             Object builder = builderClass.getConstructor().newInstance();
-                            XposedHelpers.callMethod(builder, "request", request);
-                            XposedHelpers.callMethod(builder, "protocol", protocol);
-                            XposedHelpers.callMethod(builder, "code", 200);
-                            XposedHelpers.callMethod(builder, "message", "OK");
-                            XposedHelpers.callMethod(builder, "header", "Content-Type", "application/json; charset=utf-8");
-                            XposedHelpers.callMethod(builder, "header", "X-BiliSplashSniper", "blocked");
-                            XposedHelpers.callMethod(builder, "body", body);
-                            Object response = XposedHelpers.callMethod(builder, "build");
+                            Reflect.callMethod(builder, "request", request);
+                            Reflect.callMethod(builder, "protocol", protocol);
+                            Reflect.callMethod(builder, "code", 200);
+                            Reflect.callMethod(builder, "message", "OK");
+                            Reflect.callMethod(builder, "header", "Content-Type", "application/json; charset=utf-8");
+                            Reflect.callMethod(builder, "header", "X-BiliSplashSniper", "blocked");
+                            Reflect.callMethod(builder, "body", body);
+                            Object response = Reflect.callMethod(builder, "build");
                             long count = (path.endsWith("/list") ? LIST_BLOCKED : SHOW_BLOCKED).incrementAndGet();
                             Log.d(TAG, "[SplashBlock] BLOCKED " + path + ", count=" + count
                                     + ", HTTP=200, emptyResponse=true, networkSkipped=true");
@@ -144,18 +143,18 @@ public final class BiliSplashSniper {
                             throw new java.io.IOException("Splash request blocked", error);
                         }
                     });
-            XposedHelpers.findAndHookMethod(clientBuilder, "build", new XC_MethodHook() {
-                @Override protected void beforeHookedMethod(MethodHookParam param) {
-                    try {
-                        @SuppressWarnings("unchecked")
-                        java.util.List<Object> list = (java.util.List<Object>) interceptors.invoke(param.thisObject);
-                        for (Object item : list) if (item == blocker) return;
-                        list.add(0, blocker);
-                        if (DEBUG_INTERVAL) Log.d(TAG, "[SplashClient] request interceptor attached");
-                    } catch (Throwable error) {
-                        Log.d(TAG, "[SplashClient] FAILED to attach interceptor: " + error);
-                    }
+            Method build = NativeHooks.method(clientBuilder, "build");
+            NativeHooks.hook("BiliSplashSniper.OkHttpClientBuild", build, chain -> {
+                try {
+                    @SuppressWarnings("unchecked")
+                    java.util.List<Object> list = (java.util.List<Object>) interceptors.invoke(chain.getThisObject());
+                    for (Object item : list) if (item == blocker) return chain.proceed();
+                    list.add(0, blocker);
+                    if (DEBUG_INTERVAL) Log.d(TAG, "[SplashClient] request interceptor attached");
+                } catch (Throwable error) {
+                    Log.d(TAG, "[SplashClient] FAILED to attach interceptor: " + error);
                 }
+                return chain.proceed();
             });
             Log.d(TAG, "[SplashBlockInstall] installed via OkHttpClient.Builder.build"
                     + ", interface=" + interceptorType.getName() + ", chainInterface=" + chainType.getName()
@@ -204,16 +203,14 @@ public final class BiliSplashSniper {
 
     private static void hookInterval(ClassLoader loader, String method, int seconds) {
         try {
-            XposedHelpers.findAndHookMethod("tv.danmaku.bili.splash.ad.model.SplashListResponse",
-                    loader, method, new XC_MethodHook() {
-                        @Override protected void afterHookedMethod(MethodHookParam param) {
-                            if (param.hasThrowable()) return;
-                            Object original = param.getResult();
-                            param.setResult(seconds);
-                            Log.d(TAG, "[SplashInterval] DEBUG " + method + ": " + original
-                                    + " -> " + seconds + " seconds");
-                        }
-                    });
+            Class<?> type = Reflect.findClass("tv.danmaku.bili.splash.ad.model.SplashListResponse", loader);
+            Method target = NativeHooks.method(type, method);
+            NativeHooks.hook("BiliSplashSniper." + method, target, chain -> {
+                Object result = chain.proceed();
+                Log.d(TAG, "[SplashInterval] DEBUG " + method + ": " + result
+                        + " -> " + seconds + " seconds");
+                return seconds;
+            });
             Log.d(TAG, "[SplashIntervalInstall] DEBUG " + method + "=" + seconds + " seconds");
         } catch (Throwable error) {
             Log.d(TAG, "[SplashIntervalInstall] FAILED " + method + ": " + error);
@@ -222,27 +219,28 @@ public final class BiliSplashSniper {
 
     private static void installDisplayFallback(ClassLoader loader, DexKitHelper helper) {
         try {
-            XposedHelpers.findAndHookMethod(helper.BASE_SPLASH_CLASS_NAME, loader,
-                    helper.SPLASH_READY_METHOD_NAME, boolean.class, new XC_MethodHook() {
-                        @Override protected void afterHookedMethod(MethodHookParam param) {
-                            Object splash = param.thisObject;
-                            Log.d(TAG, "[SplashFallback] ready=" + param.args[0]
-                                    + ", class=" + splash.getClass().getName()
-                                    + ", listBlocked=" + LIST_BLOCKED.get()
-                                    + ", showBlocked=" + SHOW_BLOCKED.get());
-                            try {
-                                XposedHelpers.callMethod(splash, helper.SPLASH_SKIP_METHOD_NAME);
-                                Log.d(TAG, "[SplashSkip] success: " + helper.SPLASH_SKIP_METHOD_NAME);
-                            } catch (Throwable first) {
-                                try {
-                                    XposedHelpers.callMethod(splash, "Nf", null, null, false);
-                                    Log.d(TAG, "[SplashSkip] success: Nf fallback");
-                                } catch (Throwable second) {
-                                    Log.d(TAG, "[SplashSkip] FAILED: " + first + "; fallback=" + second);
-                                }
-                            }
-                        }
-                    });
+            Class<?> type = Reflect.findClass(helper.BASE_SPLASH_CLASS_NAME, loader);
+            Method target = NativeHooks.method(type, helper.SPLASH_READY_METHOD_NAME, boolean.class);
+            NativeHooks.hook("BiliSplashSniper.onSplashReady", target, chain -> {
+                Object result = chain.proceed();
+                Object splash = chain.getThisObject();
+                Log.d(TAG, "[SplashFallback] ready=" + chain.getArg(0)
+                        + ", class=" + splash.getClass().getName()
+                        + ", listBlocked=" + LIST_BLOCKED.get()
+                        + ", showBlocked=" + SHOW_BLOCKED.get());
+                try {
+                    Reflect.callMethod(splash, helper.SPLASH_SKIP_METHOD_NAME);
+                    Log.d(TAG, "[SplashSkip] success: " + helper.SPLASH_SKIP_METHOD_NAME);
+                } catch (Throwable first) {
+                    try {
+                        Reflect.callMethod(splash, "Nf", null, null, false);
+                        Log.d(TAG, "[SplashSkip] success: Nf fallback");
+                    } catch (Throwable second) {
+                        Log.d(TAG, "[SplashSkip] FAILED: " + first + "; fallback=" + second);
+                    }
+                }
+                return result;
+            });
             Log.d(TAG, "[SplashFallbackInstall] installed: " + helper.BASE_SPLASH_CLASS_NAME
                     + "." + helper.SPLASH_READY_METHOD_NAME);
         } catch (Throwable error) {
@@ -257,48 +255,47 @@ public final class BiliSplashSniper {
      */
     private static void installBrandSplashBlock(ClassLoader loader) {
         try {
-            final Class<?> fragment = XposedHelpers.findClass("androidx.fragment.app.Fragment", loader);
-            final XC_MethodHook hide = new XC_MethodHook() {
-                @Override
-                protected void afterHookedMethod(MethodHookParam param) {
-                    try {
-                        Object self = param.thisObject;
-                        if (self == null) {
-                            return;
-                        }
-                        String name = self.getClass().getName();
-                        String lower = name.toLowerCase(java.util.Locale.US);
-                        boolean brand = lower.contains("brandsplash");
-                        if (!brand && lower.contains("splash")) {
-                            long seen = BRAND_SEEN.incrementAndGet();
-                            if (seen <= 20) {
-                                Log.d(TAG, "[SplashSeen] fragment " + name);
-                            }
-                        }
-                        if (!brand) {
-                            return;
-                        }
-                        // 默认不跳过：不少用户就是用品牌开屏来看个性化动画的。
-                        if (!FbaPrefs.brandSplashBlock()) {
-                            return;
-                        }
-                        Object view = XposedHelpers.callMethod(self, "getView");
-                        if (!(view instanceof View)) {
-                            return;
-                        }
-                        ((View) view).setVisibility(View.GONE);
-                        long count = BRAND_HIDDEN.incrementAndGet();
-                        if (count <= 5) {
-                            Log.d(TAG, "[BrandSplash] hidden " + name + ", count=" + count);
-                        }
-                    } catch (Throwable ignore) {
-                        // 不打断宿主
-                    }
-                }
-            };
+            final Class<?> fragment = Reflect.findClass("androidx.fragment.app.Fragment", loader);
             int hooked = 0;
-            for (String method : new String[]{"performViewCreated", "performResume", "onViewCreated"}) {
-                hooked += XposedBridge.hookAllMethods(fragment, method, hide).size();
+            for (String name : new String[]{"performViewCreated", "performResume", "onViewCreated"}) {
+                hooked += NativeHooks.hookAllMethods("BiliSplashSniper.BrandSplash." + name,
+                        fragment, name, chain -> {
+                            Object result = chain.proceed();
+                            try {
+                                Object self = chain.getThisObject();
+                                if (self == null) {
+                                    return result;
+                                }
+                                String className = self.getClass().getName();
+                                String lower = className.toLowerCase(java.util.Locale.US);
+                                boolean brand = lower.contains("brandsplash");
+                                if (!brand && lower.contains("splash")) {
+                                    long seen = BRAND_SEEN.incrementAndGet();
+                                    if (seen <= 20) {
+                                        Log.d(TAG, "[SplashSeen] fragment " + className);
+                                    }
+                                }
+                                if (!brand) {
+                                    return result;
+                                }
+                                // 默认不跳过：不少用户就是用品牌开屏来看个性化动画的。
+                                if (!FbaPrefs.brandSplashBlock()) {
+                                    return result;
+                                }
+                                Object view = Reflect.tryCallMethod(self, "getView");
+                                if (!(view instanceof View)) {
+                                    return result;
+                                }
+                                ((View) view).setVisibility(View.GONE);
+                                long count = BRAND_HIDDEN.incrementAndGet();
+                                if (count <= 5) {
+                                    Log.d(TAG, "[BrandSplash] hidden " + className + ", count=" + count);
+                                }
+                            } catch (Throwable ignore) {
+                                // 不打断宿主
+                            }
+                            return result;
+                        });
             }
             Log.d(TAG, "[BrandSplashBlock] installed hooks=" + hooked);
             installSplashActivityProbe(loader);
@@ -310,28 +307,28 @@ public final class BiliSplashSniper {
     /** 只记日志：下次品牌开屏出现时，日志会告诉我们它到底是哪个类。 */
     private static void installSplashActivityProbe(ClassLoader loader) {
         try {
-            final Class<?> activity = XposedHelpers.findClass("android.app.Activity", loader);
-            XposedBridge.hookAllMethods(activity, "onCreate", new XC_MethodHook() {
-                @Override
-                protected void afterHookedMethod(MethodHookParam param) {
-                    try {
-                        Object self = param.thisObject;
-                        if (self == null) {
-                            return;
+            final Class<?> activity = Reflect.findClass("android.app.Activity", loader);
+            NativeHooks.hookAllMethods("BiliSplashSniper.SplashActivityProbe", activity, "onCreate",
+                    chain -> {
+                        Object result = chain.proceed();
+                        try {
+                            Object self = chain.getThisObject();
+                            if (self == null) {
+                                return result;
+                            }
+                            String name = self.getClass().getName();
+                            if (!name.toLowerCase(java.util.Locale.US).contains("splash")) {
+                                return result;
+                            }
+                            long seen = BRAND_SEEN.incrementAndGet();
+                            if (seen <= 20) {
+                                Log.d(TAG, "[SplashSeen] activity " + name);
+                            }
+                        } catch (Throwable ignore) {
+                            // 不打断宿主
                         }
-                        String name = self.getClass().getName();
-                        if (!name.toLowerCase(java.util.Locale.US).contains("splash")) {
-                            return;
-                        }
-                        long seen = BRAND_SEEN.incrementAndGet();
-                        if (seen <= 20) {
-                            Log.d(TAG, "[SplashSeen] activity " + name);
-                        }
-                    } catch (Throwable ignore) {
-                        // 不打断宿主
-                    }
-                }
-            });
+                        return result;
+                    });
         } catch (Throwable error) {
             Log.d(TAG, "[SplashProbe] FAILED: " + error);
         }
@@ -343,24 +340,23 @@ public final class BiliSplashSniper {
      */
     private static void installSplashThemeHook(ClassLoader loader) {
         try {
-            final Class<?> activity = XposedHelpers.findClass("android.app.Activity", loader);
-            XposedBridge.hookAllMethods(activity, "onCreate", new XC_MethodHook() {
-                @Override
-                protected void afterHookedMethod(MethodHookParam param) {
-                    try {
-                        Object self = param.thisObject;
-                        if (!(self instanceof Activity)) {
-                            return;
-                        }
-                        String name = self.getClass().getName();
-                        if (!name.endsWith("SplashShellActivity") && !name.endsWith("MainActivityV2")) {
-                            return;
-                        }
-                        applySplashTheme((Activity) self);
-                    } catch (Throwable ignore) {
-                        // 不打断宿主
+            final Class<?> activity = Reflect.findClass("android.app.Activity", loader);
+            NativeHooks.hookAllMethods("BiliSplashSniper.SplashTheme", activity, "onCreate", chain -> {
+                Object result = chain.proceed();
+                try {
+                    Object self = chain.getThisObject();
+                    if (!(self instanceof Activity)) {
+                        return result;
                     }
+                    String name = self.getClass().getName();
+                    if (!name.endsWith("SplashShellActivity") && !name.endsWith("MainActivityV2")) {
+                        return result;
+                    }
+                    applySplashTheme((Activity) self);
+                } catch (Throwable ignore) {
+                    // 不打断宿主
                 }
+                return result;
             });
             Log.d(TAG, "[SplashTheme] hook installed");
         } catch (Throwable error) {
@@ -419,4 +415,5 @@ public final class BiliSplashSniper {
                 + " layered=" + (themed instanceof LayerDrawable));
     }
 
-    private BiliSplashSniper() { }}
+    private BiliSplashSniper() { }
+}

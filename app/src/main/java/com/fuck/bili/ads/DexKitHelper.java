@@ -23,7 +23,7 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Properties;
 
-import de.robv.android.xposed.callbacks.XC_LoadPackage;
+import android.content.pm.ApplicationInfo;
 
 public class DexKitHelper {
 
@@ -72,10 +72,10 @@ public class DexKitHelper {
     // 开启测试模式，强制扫描并打印结果
     public final boolean IS_TESTING = BuildConfig.DEBUG;
 
-    public void resolve(XC_LoadPackage.LoadPackageParam lpparam) {
+    public void resolve(ApplicationInfo appInfo) {
         long start = System.currentTimeMillis();
-        String cacheKey = cacheKeyFor(lpparam);
-        File cacheFile = cacheFileFor(lpparam);
+        String cacheKey = cacheKeyFor(appInfo);
+        File cacheFile = cacheFileFor(appInfo);
         Properties cacheProps = new Properties();
         boolean needScan = true;
 
@@ -124,7 +124,7 @@ public class DexKitHelper {
         }
         if (needScan || IS_TESTING) {
             Log.d(TAG, "Starting DexKit deep scan...");
-            try (DexKitBridge bridge = DexKitBridge.create(lpparam.appInfo.sourceDir)) {
+            try (DexKitBridge bridge = DexKitBridge.create(appInfo.sourceDir)) {
                 if (bridge == null) {
                     Log.d(TAG, "DexKit initialization failed!");
                     return;
@@ -521,11 +521,11 @@ public class DexKitHelper {
      * Cache identity: module build + host APK fingerprint. LSPosed 注入的 classloader
      * 拿不到 CodeSource（null），所以不能用模块 APK 的 mtime 做 key。
      */
-    private static String cacheKeyFor(XC_LoadPackage.LoadPackageParam lpparam) {
+    private static String cacheKeyFor(ApplicationInfo appInfo) {
         long apkTime = 0L;
         long apkSize = 0L;
         try {
-            File apk = new File(lpparam.appInfo.sourceDir);
+            File apk = new File(appInfo.sourceDir);
             apkTime = apk.lastModified();
             apkSize = apk.length();
         } catch (Throwable ignore) {
@@ -534,37 +534,37 @@ public class DexKitHelper {
         return "m" + BuildConfig.VERSION_CODE + "-h" + apkTime + "-s" + apkSize;
     }
 
-    private static File cacheFileFor(XC_LoadPackage.LoadPackageParam lpparam) {
+    private static File cacheFileFor(ApplicationInfo appInfo) {
         try {
-            return new File(lpparam.appInfo.dataDir, "cache/dexkit_hook_cache.properties");
+            return new File(appInfo.dataDir, "cache/dexkit_hook_cache.properties");
         } catch (Throwable t) {
             return null;
         }
     }
 
     /** 快速判断（几毫秒）：当前宿主 + 模块构建是否已有可用缓存。 */
-    public boolean cacheValid(XC_LoadPackage.LoadPackageParam lpparam) {
-        File file = cacheFileFor(lpparam);
+    public boolean cacheValid(ApplicationInfo appInfo) {
+        File file = cacheFileFor(appInfo);
         if (file == null || !file.exists()) {
             return false;
         }
         Properties props = new Properties();
         try (FileInputStream fis = new FileInputStream(file)) {
             props.load(fis);
-            return cacheKeyFor(lpparam).equals(props.getProperty("cache_key"));
+            return cacheKeyFor(appInfo).equals(props.getProperty("cache_key"));
         } catch (Throwable t) {
             return false;
         }
     }
 
     /** 后台线程扫描；{@code onDone} 一定回到主线程执行。 */
-    public void resolveAsync(final XC_LoadPackage.LoadPackageParam lpparam, final Runnable onDone) {
+    public void resolveAsync(final ApplicationInfo appInfo, final Runnable onDone) {
         final Handler handler = new Handler(Looper.getMainLooper());
         Thread thread = new Thread(new Runnable() {
             @Override
             public void run() {
                 try {
-                    resolve(lpparam);
+                    resolve(appInfo);
                 } catch (Throwable t) {
                     Log.d(TAG, "async resolve failed: " + t);
                 } finally {

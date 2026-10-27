@@ -4,7 +4,7 @@ import android.content.Context;
 import android.content.SharedPreferences;
 import android.util.Log;
 
-import android.app.AndroidAppHelper;
+import com.fuck.bili.ads.core.Host;
 
 /**
  * Module preferences, stored in the host app's own data dir.
@@ -21,6 +21,7 @@ public final class FbaPrefs {
     private static final String KEY_STORY_TOAST = "story_toast";
     private static final String KEY_STORY_FILTER = "story_filter";
     private static final String KEY_STORY_FILTER_TOAST = "story_filter_toast";
+    private static final String KEY_STORY_FILTER_OFFSET = "story_filter_offset";
     private static final String KEY_VERBOSE = "verbose";
     private static final String KEY_SHARE_MARK = "share_mark";
     private static final String KEY_SPLASH_THEME = "splash_theme";
@@ -50,7 +51,7 @@ public final class FbaPrefs {
         Context ctx = context;
         if (ctx == null) {
             try {
-                ctx = AndroidAppHelper.currentApplication();
+                ctx = Host.currentApplication();
                 context = ctx;
             } catch (Throwable ignore) {
                 // keep null
@@ -91,6 +92,15 @@ public final class FbaPrefs {
 
     public static void setStoryFilterToast(boolean value) {
         putBoolean(KEY_STORY_FILTER_TOAST, value);
+    }
+
+    /** 剔除提示后追加“（后x条）”。默认关闭，避免提示过长。 */
+    public static boolean storyFilterOffset() {
+        return getBoolean(KEY_STORY_FILTER_OFFSET, false);
+    }
+
+    public static void setStoryFilterOffset(boolean value) {
+        putBoolean(KEY_STORY_FILTER_OFFSET, value);
     }
 
     public static boolean verbose() {

@@ -12,7 +12,7 @@ import java.util.Collections;
 import java.util.List;
 import java.util.regex.Pattern;
 
-import android.app.AndroidAppHelper;
+import com.fuck.bili.ads.core.Host;
 
 /** All configuration belongs to the host app's private storage. */
 public final class FollowingFilterConfig {
@@ -63,7 +63,7 @@ public final class FollowingFilterConfig {
     private static SharedPreferences preferences() {
         Context context = appContext;
         if (context == null) {
-            context = AndroidAppHelper.currentApplication();
+            context = Host.currentApplication();
             if (context != null) init(context);
         }
         if (context == null) throw new IllegalStateException("Application context is not available yet");

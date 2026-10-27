@@ -1,6 +1,5 @@
 package com.fuck.bili.ads;
 
-import android.app.AndroidAppHelper;
 import android.app.Application;
 import android.content.Context;
 import android.content.res.Resources;
@@ -9,6 +8,10 @@ import android.view.View;
 import android.view.ViewGroup;
 
 import androidx.recyclerview.widget.RecyclerView;
+
+import com.fuck.bili.ads.core.Host;
+import com.fuck.bili.ads.core.NativeHooks;
+import com.fuck.bili.ads.core.Reflect;
 
 import java.io.File;
 import java.io.FileWriter;
@@ -23,10 +26,6 @@ import java.util.Comparator;
 import java.util.Date;
 import java.util.List;
 import java.util.Locale;
-
-import de.robv.android.xposed.XC_MethodHook;
-import de.robv.android.xposed.XposedBridge;
-import de.robv.android.xposed.XposedHelpers;
 
 public class GlobalAdSniperEngine {
 
@@ -66,67 +65,59 @@ public class GlobalAdSniperEngine {
     public static void hook(ClassLoader classLoader,DexKitHelper helper) {
 
         try {
-            XposedHelpers.findAndHookMethod(
-                    "com.bilibili.pegasus.request.PegasusGsonParser",
-                    classLoader,
+            Class<?> parser = Reflect.findClass("com.bilibili.pegasus.request.PegasusGsonParser", classLoader);
+            Method parse = NativeHooks.method(parser,
                     helper.PEGASUS_SUS_GSON_PARSER_PARSER_METHOD_NAME,
-                    "okhttp3.ResponseBody",
-                    new XC_MethodHook() {
-                        @Override
-                        protected void beforeHookedMethod(MethodHookParam param) throws Throwable {
-                            Object responseBody = param.args[0];
-                            if (responseBody == null) return;
+                    Reflect.findClass("okhttp3.ResponseBody", classLoader));
+            NativeHooks.hook("GlobalAdSniperEngine.PegasusParse", parse, chain -> {
+                Object responseBody = chain.getArg(0);
+                Object[] args = null;
+                if (responseBody != null) {
+                    try {
+                        // 1. 读出原始 JSON 文本
+                        String json = readBodyText(responseBody);
+                        if (json != null && json.length() >= 64) {
+                            // 2. 修改云控配置（禁止刷新、自定义列数）
+                            String configModifiedJson = modifyCloudConfig(json);
+                            boolean isConfigModified = !configModifiedJson.equals(json);
+                            json = configModifiedJson;
 
-                            try {
-                                // 1. 读出原始 JSON 文本
-                                String json = readBodyText(responseBody);
-                                if (json == null || json.length() < 64) return;
+                            // 3. 快速预判，如果不含广告且也没改云控，直接放行走原逻辑
+                            boolean hasAd = mayContainAd(json);
+                            String cleaned = json;
+                            if (hasAd) {
+                                String noAdJson = removeAdItems(json);
+                                if (noAdJson != null && noAdJson.length() < json.length()) {
+                                    cleaned = noAdJson;
+                                    Log.d(TAG, "[AdFilter] 响应已净化广告: " + json.length() + " -> " + cleaned.length() + " 字符");
 
-                                // 2. 修改云控配置（禁止刷新、自定义列数）
-                                String configModifiedJson = modifyCloudConfig(json);
-                                boolean isConfigModified = !configModifiedJson.equals(json);
-                                json = configModifiedJson;
-
-                                // 3. 快速预判，如果不含广告且也没改云控，直接放行走原逻辑
-                                boolean hasAd = mayContainAd(json);
-                                if (!hasAd && !isConfigModified) {
-                                    return;
+                                    if (IS_TESTING) saveJsonToFile(json);
                                 }
+                            }
 
-                                // 4. 括号配平切除广告卡片
-                                String cleaned = json;
-                                if (hasAd) {
-                                    String noAdJson = removeAdItems(json);
-                                    if (noAdJson != null && noAdJson.length() < json.length()) {
-                                        cleaned = noAdJson;
-                                        Log.d(TAG, "[AdFilter] 响应已净化广告: " + json.length() + " -> " + cleaned.length() + " 字符");
-
-                                        if (IS_TESTING) saveJsonToFile(json);
-                                    }
-                                }
-
-                                // 如果文本完全没变，直接返回
-                                if (cleaned.equals(json) && !isConfigModified) return;
-
-                                // 5. 构造修改后的 ResponseBody 并替换入参
+                            // 如果文本完全没变，直接返回
+                            if (!cleaned.equals(json) || isConfigModified) {
+                                // 4. 构造修改后的 ResponseBody 并替换入参
                                 Object newBody = buildResponseBody(responseBody, cleaned);
-                                if (newBody == null) return;
-                                param.args[0] = newBody;
-
-                            } catch (Throwable t) {
-                                Log.e(TAG, "净化或修改响应失败，已回退", t);
+                                if (newBody != null) {
+                                    args = chain.getArgs().toArray();
+                                    args[0] = newBody;
+                                }
                             }
                         }
-
-                        @Override
-                        protected void afterHookedMethod(MethodHookParam param) throws Throwable {
-                            Object result = param.getResult();
-                            if (result == null) return;
-                            if (result.getClass().getName().contains("ResponseBody")) return;
-                            cleanResponseData(result);
-                        }
+                    } catch (Throwable t) {
+                        Log.e(TAG, "净化或修改响应失败，已回退", t);
                     }
-            );
+                }
+
+                Object result = args == null ? chain.proceed() : chain.proceed(args);
+
+                if (result == null || result.getClass().getName().contains("ResponseBody")) {
+                    return result;
+                }
+                cleanResponseData(result);
+                return result;
+            });
         } catch (Throwable e) {
             Log.e(TAG, "Hook PegasusGsonParser.g 失败: " + e.getMessage());
         }
@@ -145,50 +136,49 @@ public class GlobalAdSniperEngine {
 
     private static void installSplashFilter(ClassLoader classLoader) {
         try {
-            Class<?> gsonClass = XposedHelpers.findClass("com.google.gson.Gson", classLoader);
-            java.util.Set<XC_MethodHook.Unhook> hooks = XposedBridge.hookAllMethods(
-                    gsonClass, "fromJson", new XC_MethodHook() {
-                        @Override protected void afterHookedMethod(MethodHookParam param) {
-                            // 启动期 fromJson 调用量很大：先做一次零分配的判断，
-                            // 只有命中开屏响应才继续，调试字符串也只在 IS_TESTING 下拼。
-                            Object result = param.getResult();
-                            String actual = result == null ? "null" : result.getClass().getName();
-                            boolean splash = actual.contains("SplashListResponse");
-                            if (IS_TESTING) {
-                                gsonCalls.incrementAndGet();
-                                String target = param.args != null && param.args.length >= 2
-                                        ? String.valueOf(param.args[1]) : "<unknown>";
-                                String input = param.args != null && param.args.length > 0 && param.args[0] != null
-                                        ? param.args[0].getClass().getName() : "null";
-                                synchronized (recentGson) {
-                                    if (recentGson.size() == 40) recentGson.removeFirst();
-                                    recentGson.addLast("thread=" + Thread.currentThread().getName()
-                                            + ", input=" + input + ", target=" + target
-                                            + ", result=" + actual + ", error=" + param.hasThrowable());
-                                }
-                                if (splash) Log.d(TAG, "[SplashParse] input=" + input
-                                        + ", target=" + target + ", result=" + actual
-                                        + ", overload=" + param.method);
-                            }
-                            // 不读取 Reader/JsonReader，也不消费响应流。所有 fromJson 重载统一处理结果。
-                            if (!splash || param.hasThrowable() || result == null) return;
-                            splashMatches.incrementAndGet();
-                            try {
-                                int count = clearSplashList(result);
-                                if (count > 0) {
-                                    splashRemoved.addAndGet(count);
-                                    Log.d(TAG, "[SplashFilter] cleared=" + count + ", result=" + actual);
-                                    if (IS_TESTING) Log.d(TAG, "[SplashParseStack]\n"
-                                            + Log.getStackTraceString(new Throwable("Splash parsed")));
-                                }
-                            } catch (Throwable error) {
-                                Log.d(TAG, "[SplashFilter] object filtering failed: "
-                                        + Log.getStackTraceString(error));
-                            }
-                        }
-                    });
-            splashHookInstalled = !hooks.isEmpty();
-            Log.d(TAG, "[SplashInstall] installed=" + splashHookInstalled + ", overloads=" + hooks.size()
+            Class<?> gsonClass = Reflect.findClass("com.google.gson.Gson", classLoader);
+            int hooks = NativeHooks.hookAllMethods("GlobalAdSniperEngine.SplashFromJson",
+                    gsonClass, "fromJson", chain -> {
+                // 启动期 fromJson 调用量很大：先做一次零分配的判断，
+                // 只有命中开屏响应才继续，调试字符串也只在 IS_TESTING 下拼。
+                Object result = chain.proceed();
+                String actual = result == null ? "null" : result.getClass().getName();
+                boolean splash = actual.contains("SplashListResponse");
+                java.util.List<Object> args = chain.getArgs();
+                if (IS_TESTING) {
+                    gsonCalls.incrementAndGet();
+                    String target = args.size() >= 2 ? String.valueOf(args.get(1)) : "<unknown>";
+                    String input = args.isEmpty() || args.get(0) == null
+                            ? "null" : args.get(0).getClass().getName();
+                    synchronized (recentGson) {
+                        if (recentGson.size() == 40) recentGson.removeFirst();
+                        recentGson.addLast("thread=" + Thread.currentThread().getName()
+                                + ", input=" + input + ", target=" + target
+                                + ", result=" + actual);
+                    }
+                    if (splash) Log.d(TAG, "[SplashParse] input=" + input
+                            + ", target=" + target + ", result=" + actual
+                            + ", overload=" + chain.getExecutable());
+                }
+                // 不读取 Reader/JsonReader，也不消费响应流。所有 fromJson 重载统一处理结果。
+                if (!splash || result == null) return result;
+                splashMatches.incrementAndGet();
+                try {
+                    int count = clearSplashList(result);
+                    if (count > 0) {
+                        splashRemoved.addAndGet(count);
+                        Log.d(TAG, "[SplashFilter] cleared=" + count + ", result=" + actual);
+                        if (IS_TESTING) Log.d(TAG, "[SplashParseStack]\n"
+                                + Log.getStackTraceString(new Throwable("Splash parsed")));
+                    }
+                } catch (Throwable error) {
+                    Log.d(TAG, "[SplashFilter] object filtering failed: "
+                            + Log.getStackTraceString(error));
+                }
+                return result;
+            });
+            splashHookInstalled = hooks > 0;
+            Log.d(TAG, "[SplashInstall] installed=" + splashHookInstalled + ", overloads=" + hooks
                     + ", loader=" + gsonClass.getClassLoader() + ", diagnostics=" + IS_TESTING);
         } catch (Throwable error) {
             Log.d(TAG, "[SplashInstall] failed: " + Log.getStackTraceString(error));
@@ -486,7 +476,7 @@ public class GlobalAdSniperEngine {
 
     private static void cleanResponseData(Object generalResponse) {
         try {
-            Object pegasusResponse = XposedHelpers.getObjectField(generalResponse, "data");
+            Object pegasusResponse = Reflect.getObjectField(generalResponse, "data");
             if (pegasusResponse == null) return;
 
             List<?> rawList = null;
@@ -549,7 +539,7 @@ public class GlobalAdSniperEngine {
 
     private static void saveJsonToFile(String jsonString) {
         try {
-            Application currentApp = AndroidAppHelper.currentApplication();
+            Application currentApp = Host.currentApplication();
             if (currentApp == null) return;
             File dir = currentApp.getExternalFilesDir(null);
             if (dir == null) return;
