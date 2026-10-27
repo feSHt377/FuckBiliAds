@@ -133,6 +133,10 @@ public final class FbaSettings {
             content.addView(actionRow(context, "启动页配色",
                     splashThemeLabel() + " · 点击切换",
                     titleColor, subColor, divider, v -> chooseSplashTheme(context)));
+            content.addView(switchRow(context, "跳过品牌开屏",
+                    "隐藏「22娘/33娘」品牌立绘；默认关闭，保留个性化开屏动画",
+                    FbaPrefs.brandSplashBlock(), titleColor, subColor, divider,
+                    checked -> FbaPrefs.setBrandSplashBlock(checked)));
 
             // ---- 调试 ----
             content.addView(section(context, "调试", subColor));

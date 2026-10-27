@@ -278,6 +278,10 @@ public final class BiliSplashSniper {
                         if (!brand) {
                             return;
                         }
+                        // 默认不跳过：不少用户就是用品牌开屏来看个性化动画的。
+                        if (!FbaPrefs.brandSplashBlock()) {
+                            return;
+                        }
                         Object view = XposedHelpers.callMethod(self, "getView");
                         if (!(view instanceof View)) {
                             return;

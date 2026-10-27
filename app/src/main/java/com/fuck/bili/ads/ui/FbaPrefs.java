@@ -24,6 +24,7 @@ public final class FbaPrefs {
     private static final String KEY_VERBOSE = "verbose";
     private static final String KEY_SHARE_MARK = "share_mark";
     private static final String KEY_SPLASH_THEME = "splash_theme";
+    private static final String KEY_BRAND_SPLASH_BLOCK = "brand_splash_block";
 
     // ---- update checker ----
     private static final String KEY_UPDATE_AUTO = "update_auto";
@@ -119,6 +120,14 @@ public final class FbaPrefs {
         putString(KEY_SPLASH_THEME, mode == null ? "auto" : mode);
     }
 
+    /** 是否隐藏品牌开屏（本地立绘）。默认关闭：很多用户想看个性化开屏动画。 */
+    public static boolean brandSplashBlock() {
+        return getBoolean(KEY_BRAND_SPLASH_BLOCK, false);
+    }
+
+    public static void setBrandSplashBlock(boolean value) {
+        putBoolean(KEY_BRAND_SPLASH_BLOCK, value);
+    }
     /** Resolved night flag for the startup page. */
     public static boolean splashNight() {
         String mode = splashTheme();

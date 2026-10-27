@@ -1,6 +1,5 @@
 package com.fuck.bili.ads;
 
-import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import de.robv.android.xposed.XC_MethodHook;
 import de.robv.android.xposed.XposedBridge;
@@ -22,28 +21,12 @@ public class BiliGsonLobotomy {
                             if (originalResult == null) return;
 
                             if (originalResult.contains("ad_av") || originalResult.contains("cm_v2") || "cm".equalsIgnoreCase(originalResult)) {
-                                Object instance = param.thisObject;
-
-                                // 实施物理摘除：清空底层广告数据块及特征字符串
-                                for (Field field : targetClass.getDeclaredFields()) {
-                                    field.setAccessible(true);
-                                    Object fieldValue = field.get(instance);
-
-                                    if (fieldValue != null) {
-                                        if (fieldValue.getClass().getName().endsWith("AdInfo")) {
-                                            field.set(instance, null);
-                                        } else if (fieldValue instanceof String) {
-                                            String strVal = (String) fieldValue;
-                                            if (strVal.contains("ad") || strVal.contains("cm")) {
-                                                field.set(instance, "unknown");
-                                            }
-                                        }
-                                    }
-                                }
-
-                                // 篡改表面返回值
+                                // 只改返回值，不再动模型里的字段：
+                                // 以前会把 AdInfo 置 null、把含 ad/cm 的字符串改成 "unknown"，
+                                // 这些对象是宿主正在用的同一份实例，宿主后续做空判断/解析时会直接崩
+                                // （小米 15 上 8.92.1 的偶发闪退就是这条链路）。
                                 param.setResult("unknown");
-                                MainHook.log("成功拦截并物理摧毁广告卡片实例，原始标识: " + originalResult);
+                                MainHook.log("拦截广告卡片标识，原始值: " + originalResult);
                             }
                         }
                     });

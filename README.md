@@ -6,7 +6,7 @@
 
 **哔哩哔哩 Xposed 去广告模块 · 小视频广告自动跳过**
 
-![version](https://img.shields.io/badge/version-1.1.1-ff2d55)
+![version](https://img.shields.io/badge/version-1.1.2-ff2d55)
 [![xposed repo](https://img.shields.io/badge/Xposed%20Repo-listed-00aeec)](https://modules.lsposed.org/module/io.github.fesht377.biliads/)
 ![host](https://img.shields.io/badge/host-9.16.1%20tested-00aeec)
 ![platform](https://img.shields.io/badge/platform-Android%208.0%2B-3ddc84)
@@ -40,7 +40,7 @@
 | 功能 | 说明 |
 |---|---|
 | 开屏广告拦截 | 在 OkHttp 拦截器里给 `/x/v2/splash/list`、`/x/v2/splash/show` 返回空响应，广告不进展示层 |
-| 品牌开屏隐藏 | 「22娘/33娘」本地立绘来自 `BrandSplashStorage`，不走广告接口，这里在 Fragment 显示阶段直接隐藏 |
+| 品牌开屏隐藏 | 「22娘/33娘」本地立绘来自 `BrandSplashStorage`，不走广告接口；**默认关闭**，需要隐藏时在设置里打开 |
 | 启动页配色 | 启动页底色可选 **跟随系统 / 浅色 / 深色**；深色下不再白闪，logo 位置保持不变 |
 
 ### 信息流
@@ -208,6 +208,13 @@ adb logcat -s FuckBiliAds
 # [UPDATE] checking feSHt377/FuckBiliAds
 # [UPDATE] newest=v1.0.9-pre pre=true local=1.0.8(40) update=true
 ```
+
+## 1.1.2 变更（测试版）
+
+- **修复 8.92.1 上的偶发闪退**：`BiliGsonLobotomy` 原来命中广告卡片后会遍历模型字段，把 `AdInfo` 置空、把含 `ad`/`cm` 的字符串改成 `"unknown"`——这些是宿主正在渲染的同一份实例，宿主随后再做非空判断或解析就会崩（日志里两次「物理摧毁」之后都紧跟着进程重启）。现在**只改返回值，不再改动宿主对象**。
+  - 代价：以前靠清空字段让宿主彻底认不出广告卡，现在只改标识，个别版本的 Feed 广告可能重新出现；如需更强拦截可按宿主版本分级，只在 ≥ 9.0 上做字段清理。
+- **品牌开屏改为可选项**：新增开关「跳过品牌开屏」，**默认关闭**——默认保留宿主自己的个性化开屏动画，需要隐藏时在设置里打开。
+- 版本号 `1.1.2`（versionCode 10102）。
 
 ## 1.1.1 变更（测试版）
 
