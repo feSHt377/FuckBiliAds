@@ -24,12 +24,13 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      # fetch-depth: 0 —— release 正文要读 tag 注释（%(contents)），
-      # 默认的浅克隆只拿到 commit，注释会读成空。
+      # fetch-depth: 0 + fetch-tags: true —— release 正文与模块仓库备注要读 tag 注释；
+      # checkout 默认对触发 ref 用 --no-tags，浅/深克隆都可能读成空。
       - name: Checkout
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          fetch-tags: true
 
       - name: Set up JDK 21
         uses: actions/setup-java@v4
@@ -198,7 +199,21 @@ jobs:
             exit 1
           fi
           current="$(gh api "repos/$GITHUB_REPOSITORY/releases/$release_id" -q .body)"
-          tag_notes="$(git tag -l --format='%(contents)' "$TAG" | sed -e 's/[[:space:]]*$//')"
+          # 直接从 API 读 tag 注释：checkout 对触发 ref 用 --no-tags，
+          # 即便 fetch-depth: 0，%(contents) 也常常是空的。
+          tag_notes=""
+          ref_json="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$TAG" 2>/dev/null || true)"
+          if [ -n "$ref_json" ]; then
+            ref_sha="$(printf '%s' "$ref_json" | jq -r '.object.sha')"
+            ref_type="$(printf '%s' "$ref_json" | jq -r '.object.type')"
+            if [ "$ref_type" = "tag" ]; then
+              tag_notes="$(gh api "repos/$GITHUB_REPOSITORY/git/tags/$ref_sha" -q .message || true)"
+            fi
+          fi
+          if [ -z "$tag_notes" ]; then
+            tag_notes="$(git tag -l --format='%(contents)' "$TAG" 2>/dev/null || true)"
+          fi
+          tag_notes="$(printf '%s' "$tag_notes" | sed -e 's/[[:space:]]*$//')"
           if [ -z "$tag_notes" ]; then
             echo "::warning::tag $TAG 没有注释，退回提交标题"
             tag_notes="$(git log -1 --pretty=%s)"
