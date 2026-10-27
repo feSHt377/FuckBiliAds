@@ -242,7 +242,11 @@ export KEY_PASSWORD=...
 - tag 带 `-pre` 后缀（如 `v1.1.1-pre`）时发布为 pre-release，标题追加「· 测试版」，且不同步到模块仓库；
 - versionCode 由 tag 的语义版本算出：`major*10000 + minor*100 + patch`（`v1.1.1-pre` → `10101`），
   保证 CI 产物一定比历史构建新；本地 `./gradlew` 的默认值也用同一套规则；
-- release 说明末尾会自动追加 `versionCode: N`，应用内更新检查靠这一行区分**同版本号**的 pre 与正式版；
+- release 正文 = **tag 注释** + `**Full Changelog**: …` + `versionCode: N`：
+  tag 注释用 `git tag -a v1.2.0 -F notes.md` 写好，页面直接用它当说明；
+  末尾那行 `versionCode` 是应用内更新检查区分**同版本号** pre / 正式版的依据，不要手动删；
+- 不要靠删 tag 重发版本：GitHub 会把关联 release 转成 **Draft**，重推同一 tag 时工作流会显式
+  `draft: false` 救回来，但期间发布页会闪一下 Draft，用户也可能看到；
 - 也可在 Actions 页面手动 `workflow_dispatch`，只产出构建工件。
 
 仓库需要的 Actions Secrets（已由 `gh secret set` 配置）：

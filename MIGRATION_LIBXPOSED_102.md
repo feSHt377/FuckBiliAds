@@ -487,6 +487,10 @@ app/src/main/
 | 构建 | `.github/workflows/release.yml`：`./gradlew :app:assembleRelease -PversionCode=10200 -PversionName=1.2.0`，用仓库 secret 里的正式 keystore 签名（本地不签名、不出包） |
 | 产物 | `FuckBiliAds-1.2.0.apk`，挂在 GitHub Release；同时同步到 `Xposed-Modules-Repo/io.github.fesht377.biliads`（tag `10200-1.2.0`） |
 | versionCode | 由 tag 推导 `1*10000 + 2*100 + 0 = 10200`，与本地默认值一致 |
+| 发布结果 | <https://github.com/feSHt377/FuckBiliAds/releases/tag/v1.2.0>（正式版，非 draft / 非 pre）；APK SHA-256 见 Actions 的 Step Summary |
+| 签名 | CI 正式密钥 `CN=FuckBiliAds`，SHA-256 `932985230f23e38530dc4abc949a4eb4adc5a08325509abaac4a7be35af21981`，与 1.1.2 一致，可直接覆盖升级 |
+| 模块仓库 | <https://github.com/Xposed-Modules-Repo/io.github.fesht377.biliads/releases/tag/10200-1.2.0> |
+| 发布流程修复 | 期间发现并修掉三处 CI 缺陷：`append_body` 在新建 release 时失效（正文没有 `versionCode`）、`PATCH /releases/tags/{tag}` 返回 404（必须用 `/releases/{id}`）、删 tag 会把 release 变 Draft（构建需显式 `draft: false`） |
 
 ### 回滚
 
