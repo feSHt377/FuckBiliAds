@@ -19,6 +19,7 @@ public final class FbaPrefs {
 
     private static final String KEY_STORY_SKIP = "story_skip";
     private static final String KEY_STORY_TOAST = "story_toast";
+    private static final String KEY_STORY_FILTER = "story_filter";
     private static final String KEY_VERBOSE = "verbose";
     private static final String KEY_SHARE_MARK = "share_mark";
 
@@ -60,6 +61,15 @@ public final class FbaPrefs {
 
     public static void setStoryToast(boolean value) {
         putBoolean(KEY_STORY_TOAST, value);
+    }
+
+    /** Drop ad cards from the playlist on arrival instead of scrolling past them. */
+    public static boolean storyFilter() {
+        return getBoolean(KEY_STORY_FILTER, true);
+    }
+
+    public static void setStoryFilter(boolean value) {
+        putBoolean(KEY_STORY_FILTER, value);
     }
 
     public static boolean verbose() {

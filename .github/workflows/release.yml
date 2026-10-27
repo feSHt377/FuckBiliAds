@@ -48,16 +48,21 @@ jobs:
         id: ver
         shell: bash
         run: |
+          prerelease=false
           if [ "${{ github.ref_type }}" = "tag" ]; then
             name="${GITHUB_REF_NAME#v}"
+            case "$name" in
+              *-pre) prerelease=true; name="${name%-pre}" ;;
+            esac
           elif [ -n "${{ inputs.version_name }}" ]; then
             name="${{ inputs.version_name }}"
           else
             name="1.0.0"
           fi
           echo "name=$name" >> "$GITHUB_OUTPUT"
+          echo "prerelease=$prerelease" >> "$GITHUB_OUTPUT"
           echo "code=${{ github.run_number }}" >> "$GITHUB_OUTPUT"
-          echo "Building FuckBiliAds $name (code ${{ github.run_number }})"
+          echo "Building FuckBiliAds $name (code ${{ github.run_number }}, prerelease=$prerelease)"
 
       - name: Decode keystore
         shell: bash
@@ -121,12 +126,13 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           files: FuckBiliAds-${{ steps.ver.outputs.name }}.apk
-          name: FuckBiliAds v${{ steps.ver.outputs.name }}
+          name: FuckBiliAds v${{ steps.ver.outputs.name }}${{ steps.ver.outputs.prerelease == 'true' && ' · 测试版' || '' }}
           generate_release_notes: true
+          prerelease: ${{ steps.ver.outputs.prerelease == 'true' }}
           fail_on_unmatched_files: true
 
       - name: Sync to Xposed module repository
-        if: github.ref_type == 'tag'
+        if: github.ref_type == 'tag' && steps.ver.outputs.prerelease != 'true'
         shell: bash
         env:
           MODULE_REPO_TOKEN: ${{ secrets.MODULE_REPO_TOKEN }}

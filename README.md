@@ -6,7 +6,7 @@
 
 **哔哩哔哩 Xposed 去广告模块 · 小视频广告自动跳过**
 
-![version](https://img.shields.io/badge/version-1.0.8-ff2d55)
+![version](https://img.shields.io/badge/version-1.0.9%20pre--release-ff2d55)
 [![xposed repo](https://img.shields.io/badge/Xposed%20Repo-listed-00aeec)](https://modules.lsposed.org/module/io.github.fesht377.biliads/)
 ![host](https://img.shields.io/badge/host-9.16.1%20tested-00aeec)
 ![platform](https://img.shields.io/badge/platform-Android%208.0%2B-3ddc84)
@@ -40,6 +40,7 @@
 | 直播间广告 | 直播间内广告位清理 |
 | 播放页广告 | 播放器下方推广位、暂停页广告 |
 | **小视频广告自动跳过** | 检测到 `feedIsAd` 即跳下一条，并弹 B 站 Toast |
+| **彻底剔除广告（实验，1.0.9）** | 在播放列表入口直接摘掉广告卡，不再进入列表、不渲染、不预加载 |
 | **设置入口** | 「我的 → 更多服务」新增 `FuckBiliAds` 入口，界面沿用 B 站配色与控件 |
 | **手动标记** | 小视频分享面板内「标记广告」按钮，把当前条目字段写入日志 |
 | **日志查看 / 导出 / 清空** | 设置页内可查看、复制、分享或保存到 `Download/FuckBiliAds` |
@@ -141,6 +142,14 @@ adb logcat -s FuckBiliAds
 ```text
 10-26 19:40:12.331 [I] [MARK] source=share activity=com.bilibili.video.story.StoryVideoActivity rv=androidx.recyclerview.widget.RecyclerView adapter=com.bilibili.video.story.L children=3 pos=6 visible=1080x2300 item=com.bilibili.video.story.StoryDetail aid=0 cid=0 adType=-1 adInfo=... feedIsAd=true creativeId=3995855299
 ```
+
+## 1.0.9 变更（测试版）
+
+- **新增「彻底剔除广告（实验）」**：宿主的播放列表只在三个时机刷新——首屏、加载下一页、回滑补数据，三者都经过 `StoryPagerPlayer` 的批次方法。现在在 `T0(List)` / `t1(List)`（实例）与 `V1(player, List, …)`（静态，整表替换）的**入口**把广告卡从参数列表里摘掉，宿主后续的 size 运算、当前索引、播放器切片、曝光上报都只看得到真实视频。
+- **存量清理**：钩子安装前已经进列表的广告卡（通常是首批），通过宿主自己的 `StoryPagerPlayer.remove(int)` 移除——它对广告卡有专用分支，会同步播放器与索引；我们从不直接改 adapter 列表。
+- **多重兜底**：整批都是广告时保留原列表（否则列表会空、翻不动）；类或方法签名变了就整体退回原来的滚动跳过；开关可随时在设置页关闭。
+- 诊断面板新增「广告剔除」一行：入口是否启用 + 本会话剔除/清理条数。
+- **本版为 pre-release**：只用于测试，不打正式标签、不同步到 Xposed 模块仓库。
 
 ## 1.0.8 变更
 

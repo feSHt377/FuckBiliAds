@@ -64,6 +64,9 @@ public final class StoryAdSniper {
     /** Story page class resolved from the host; null means "match by name". */
     private static Class<?> storyActivity;
 
+    /** Host class loader, kept so the playlist filter can hook its batch methods. */
+    static volatile ClassLoader hostLoader;
+
     private static volatile boolean ready;
     private static volatile Host current;
 
@@ -79,6 +82,10 @@ public final class StoryAdSniper {
             FbaLog.w("story: page class missing, matching by name");
         }
         storyActivity = resolved;
+        hostLoader = classLoader;
+
+        boolean filter = StoryAdFilter.install(classLoader);
+        FbaRuntime.mark("剔除", filter);
 
         boolean appLifecycle = hookAppLifecycle(classLoader);
         boolean frameworkLifecycle = hookFrameworkLifecycle();
@@ -88,7 +95,7 @@ public final class StoryAdSniper {
         startWatchdog();
         FbaRuntime.mark("小视频", ready);
         FbaLog.i("story hooks: app=" + appLifecycle + " framework=" + frameworkLifecycle
-                + " attach=" + attach + " page="
+                + " attach=" + attach + " filter=" + filter + " page="
                 + (resolved == null ? "name-match" : resolved.getName()));
     }
 
@@ -301,6 +308,7 @@ public final class StoryAdSniper {
             return;
         }
         detach(null);
+        StoryAdFilter.install(hostLoader);
         current = new Host(activity);
         current.start();
         FbaLog.i("story session start: " + activity.getClass().getName());
@@ -315,6 +323,7 @@ public final class StoryAdSniper {
             return;
         }
         host.stop();
+        StoryAdFilter.forget(host.activity);
         current = null;
     }
 
@@ -334,6 +343,9 @@ public final class StoryAdSniper {
         long lastSkipAt;
         long windowStart;
         int windowCount;
+
+        /** Throttle for pruning ad cards that are already in the playlist. */
+        long lastPruneAt;
 
         /** Diagnostics. */
         long lastMissingLogAt;
@@ -398,6 +410,10 @@ public final class StoryAdSniper {
             reportDiag(diag);
             if (pos < 0) {
                 return;
+            }
+            if (FbaPrefs.storyFilter() && now() - lastPruneAt > 2000L) {
+                lastPruneAt = now();
+                StoryAdFilter.pruneAhead(activity, rv, pos);
             }
             if (item == null) {
                 if (!itemMissLogged) {
@@ -555,6 +571,10 @@ public final class StoryAdSniper {
                     verifyLater(fromPos, attempt + 1);
                 }
             }, VERIFY_DELAY_MS);
+        }
+
+        private long now() {
+            return System.currentTimeMillis();
         }
 
         private boolean isAd(Object item) {

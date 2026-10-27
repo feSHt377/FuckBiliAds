@@ -32,6 +32,7 @@ import android.widget.TextView;
 import android.widget.Toast;
 
 import com.fuck.bili.ads.BuildConfig;
+import com.fuck.bili.ads.story.StoryAdFilter;
 import com.fuck.bili.ads.story.StoryAdSniper;
 import com.fuck.bili.ads.story.StoryDebug;
 import com.fuck.bili.ads.story.StoryDiag;
@@ -113,6 +114,10 @@ public final class FbaSettings {
                     "命中 adInfo.feedIsAd 时自动翻到下一条",
                     FbaPrefs.storySkip(), titleColor, subColor, divider,
                     checked -> FbaPrefs.setStorySkip(checked)));
+            content.addView(switchRow(context, "彻底剔除广告（实验）",
+                    "在列表入口把广告卡摘掉，不再进入播放列表（失败自动退回滑动跳过）",
+                    FbaPrefs.storyFilter(), titleColor, subColor, divider,
+                    checked -> FbaPrefs.setStoryFilter(checked)));
             content.addView(switchRow(context, "跳过时提示",
                     "使用 B 站自带的底部 Toast",
                     FbaPrefs.storyToast(), titleColor, subColor, divider,
@@ -142,6 +147,7 @@ public final class FbaSettings {
             content.addView(section(context, "诊断", subColor));
             content.addView(infoRow(context, "模块状态", FbaRuntime.summary(), titleColor, subColor, divider));
             content.addView(infoRow(context, "小视频扫描", StoryDiag.describe(), titleColor, subColor, divider));
+            content.addView(infoRow(context, "广告剔除", StoryAdFilter.stats(), titleColor, subColor, divider));
             content.addView(infoRow(context, "日志落盘", FbaLog.fileOk() ? "正常" : ("失败：" + FbaLog.lastError()),
                     titleColor, subColor, divider));
             content.addView(actionRow(context, "播报模块状态",
