@@ -138,6 +138,9 @@ jobs:
           files: FuckBiliAds-${{ steps.ver.outputs.name }}.apk
           name: FuckBiliAds v${{ steps.ver.outputs.name }}${{ steps.ver.outputs.prerelease == 'true' && ' · 测试版' || '' }}
           generate_release_notes: true
+          # 删除 tag 会把关联 release 变成 draft，重推 tag 不会自动恢复；
+          # 这里显式写 false，避免发布页停在 Draft。
+          draft: false
           prerelease: ${{ steps.ver.outputs.prerelease == 'true' }}
           fail_on_unmatched_files: true
 
@@ -208,6 +211,7 @@ jobs:
           fi
           body="$(printf '%s\n\n---\nversionCode: %s' "$body" "$CODE")"
           printf '%s\n' "$body" > "$RUNNER_TEMP/release-notes.md"
+          # draft=false：删除 tag 会把 release 变成 draft，重推 tag 后要显式恢复。
           gh api -X PATCH "repos/$GITHUB_REPOSITORY/releases/$release_id" \
-            -F body=@"$RUNNER_TEMP/release-notes.md" > /dev/null
-          echo "release body updated (versionCode ${CODE})"
+            -F body=@"$RUNNER_TEMP/release-notes.md" -F draft=false > /dev/null
+          echo "draft=$(gh api "repos/$GITHUB_REPOSITORY/releases/$release_id" -q .draft) versionCode=${CODE}"
