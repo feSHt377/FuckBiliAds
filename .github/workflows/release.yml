@@ -134,13 +134,44 @@ jobs:
           files: FuckBiliAds-${{ steps.ver.outputs.name }}.apk
           name: FuckBiliAds v${{ steps.ver.outputs.name }}${{ steps.ver.outputs.prerelease == 'true' && ' · 测试版' || '' }}
           generate_release_notes: true
-          # The in-app update checker reads this line to tell 1.0.9-pre (44)
-          # apart from 1.0.9 final (45); keep the format "versionCode: N".
-          append_body: |
-            ---
-            versionCode: ${{ steps.ver.outputs.code }}
           prerelease: ${{ steps.ver.outputs.prerelease == 'true' }}
           fail_on_unmatched_files: true
+
+      # softprops/action-gh-release 的 append_body 只在「更新已有 release」时生效，
+      # 新建 release 时会被 generate_release_notes 的结果覆盖，于是正文里从来没有
+      # 「versionCode: N」。应用内更新检查（UpdateChecker.parseVersionCode）依赖这行
+      # 判断同名版本的新旧（1.2.0-pre 44 vs 1.2.0 45），这里显式补一次 PATCH。
+      - name: Append versionCode to release body
+        if: github.ref_type == 'tag'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+          CODE: ${{ steps.ver.outputs.code }}
+        run: |
+          set -euo pipefail
+          notes="$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/$TAG" -q .body || true)"
+          tag_notes="$(git tag -l --format='%(contents)' "$TAG" | sed -e 's/[[:space:]]*$//')"
+          body="$tag_notes"
+          if [ -n "$notes" ] && [ "$notes" != "$tag_notes" ]; then
+            if [ -n "$body" ]; then
+              body="$(printf '%s\n\n%s' "$body" "$notes")"
+            else
+              body="$notes"
+            fi
+          fi
+          # 幂等：重复运行只更新数字，不会叠加多行。
+          if printf '%s\n' "$body" | grep -q '^versionCode:'; then
+            body="$(printf '%s\n' "$body" | sed -E "s/^versionCode:.*/versionCode: ${CODE}/")"
+          elif [ -n "$body" ]; then
+            body="$(printf '%s\n\n---\nversionCode: %s' "$body" "$CODE")"
+          else
+            body="versionCode: ${CODE}"
+          fi
+          printf '%s\n' "$body" > "$RUNNER_TEMP/release-notes.md"
+          gh api -X PATCH "repos/$GITHUB_REPOSITORY/releases/tags/$TAG" \
+            -F body=@"$RUNNER_TEMP/release-notes.md" > /dev/null
+          echo "release body now carries versionCode: ${CODE}"
 
       - name: Sync to Xposed module repository
         if: github.ref_type == 'tag' && steps.ver.outputs.prerelease != 'true'
