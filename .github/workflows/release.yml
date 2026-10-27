@@ -59,10 +59,16 @@ jobs:
           else
             name="1.0.0"
           fi
+          # versionCode 用语义版本：major*10000 + minor*100 + patch（1.1.1 → 10101）。
+          # 之前取 run_number（11）比本地构建（14）小，会出现「装不上 / 更新检测认为更旧」。
+          base="${name%%-*}"
+          IFS='.' read -r major minor patch <<< "$base"
+          major="${major:-1}"; minor="${minor:-0}"; patch="${patch:-0}"
+          code=$(( major * 10000 + minor * 100 + patch ))
           echo "name=$name" >> "$GITHUB_OUTPUT"
           echo "prerelease=$prerelease" >> "$GITHUB_OUTPUT"
-          echo "code=${{ github.run_number }}" >> "$GITHUB_OUTPUT"
-          echo "Building FuckBiliAds $name (code ${{ github.run_number }}, prerelease=$prerelease)"
+          echo "code=$code" >> "$GITHUB_OUTPUT"
+          echo "Building FuckBiliAds $name (code $code, prerelease=$prerelease)"
 
       - name: Decode keystore
         shell: bash
