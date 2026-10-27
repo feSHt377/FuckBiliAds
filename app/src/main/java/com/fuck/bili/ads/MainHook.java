@@ -20,7 +20,6 @@ import de.robv.android.xposed.XC_MethodReplacement;
 import de.robv.android.xposed.XposedBridge;
 import de.robv.android.xposed.XposedHelpers;
 import de.robv.android.xposed.callbacks.XC_LoadPackage;
-import com.fuck.bili.ads.chronos.DanmuJump;
 import com.fuck.bili.ads.settings.FollowingTopLeftButton;
 import com.fuck.bili.ads.story.StoryAdSniper;
 import com.fuck.bili.ads.ui.FbaLog;
@@ -79,7 +78,6 @@ public class MainHook implements IXposedHookLoadPackage {
         install("播放页广告", () -> BiliAdSniper.hook(cl));
         install("底部导航", () -> BiliBottomNavSniper.hook(cl));
         install("抓包", () -> PacketSniffer.hook(cl));
-        install("弹幕跳转", () -> DanmuJump.hook(cl));
         install("关注页广告", () -> FollowingListAdSniper.hook(cl));
         install("关注页设置", () -> FollowingTopLeftButton.hook(cl));
         install("小视频", () -> StoryAdSniper.hook(cl));

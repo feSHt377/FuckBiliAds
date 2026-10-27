@@ -56,7 +56,6 @@
 | 功能 | 说明 |
 |---|---|
 | 播放页广告 | 播放器下方推广位、暂停页广告 |
-| 播放器替换 | 旧版本提示播放器不兼容时可替换目标版本播放器 |
 | 弹幕发送者查询 | 点击弹幕「复制」直接跳到发送者主页 |
 
 ### 小视频（重点）
@@ -221,6 +220,7 @@ adb logcat -s FuckBiliAds
   - 缓存改为原子写（临时文件 + rename），避免多进程并发写坏；
   - 首次启动（缓存缺失）时把扫描放到后台线程，不阻塞 `handleLoadPackage`，扫完再补装依赖 DexKit 的 hook；
   - `Gson.fromJson` 的调试字符串改成只在命中开屏响应时才构造。
+- **移除「弹幕引擎替换 / 弹幕跳转」**：上线前遗留的旧功能——把宿主的 Chronos 弹幕包换成模块内置的 `3.12.0` 并给引擎 JS 打补丁，1.0.3 之后再没维护过（1.0.7 只跟着改了包名常量，`isDebugBuild` 里还留着旧 ApplicationID `com.fuck.bili.ads`）。本次整体删除：`chronos/` 三个类、根包里同名的死代码 `DanmuScriptPatcher`、`assets/danmu/`（含 1.08 MB 引擎包），以及关注页设置里的「弹幕引擎 / 恢复原版」按钮；APK 体积因此减少约 1.03 MiB。
 - 版本号 `1.1.0`（versionCode 13）。
 
 ## 1.0.9 变更（测试版）
@@ -325,7 +325,6 @@ app/src/main/java/com/fuck/bili/ads/
 │   ├── MineServiceEntry.java# 「我的 → 更多服务」入口 + BLRouter 拦截
 │   ├── UpdateChecker.java   # GitHub Release 查询 / 版本比较 / 更新弹窗
 │   └── StoryShareMark.java  # 分享面板「标记广告」按钮
-├── chronos/                 # 弹幕跳转
 ├── settings/                # 关注页过滤设置
 └── *Sniper.java             # 各类广告位
 ```

@@ -17,20 +17,12 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.regex.PatternSyntaxException;
 
-import com.fuck.bili.ads.chronos.ChronosPackageOverride;
-
 public final class FollowingFilterSettings {
     public static void show(Context context) {
         FollowingFilterConfig.init(context);
         LinearLayout panel = column(context);
         int padding = dp(context, 20);
         panel.setPadding(padding, dp(context, 8), padding, dp(context, 12));
-
-        Button chronos = new Button(context);
-        chronos.setText("弹幕引擎 / 恢复原版");
-        panel.addView(chronos, rowParams());
-        chronos.setOnClickListener(v ->
-                ChronosPackageOverride.showSettings(context));
 
         Switch recommendation = new Switch(context);
         recommendation.setText("过滤 UP主的推荐");
