@@ -220,7 +220,8 @@ jobs:
           fi
           # 正文 = tag 注释 + 上游生成的 changelog 行；不累积旧正文，重复运行结果一致。
           body="$tag_notes"
-          changelog="$(printf '%s\n' "$current" | grep -m1 'Full Changelog' || true)"
+          # 只认 markdown 链接那一行，避免匹配到提交说明里的 “Full Changelog” 字样。
+          changelog="$(printf '%s\n' "$current" | grep -m1 '^\*\*Full Changelog\*\*:' || true)"
           if [ -n "$changelog" ]; then
             body="$(printf '%s\n\n%s' "$body" "$changelog")"
           fi
