@@ -1,10 +1,20 @@
 package com.fuck.bili.ads;
 
+import android.app.Activity;
+import android.graphics.drawable.ColorDrawable;
+import android.graphics.drawable.Drawable;
+import android.graphics.drawable.LayerDrawable;
 import android.util.Log;
+import android.view.View;
+import android.view.Window;
 import java.lang.reflect.Method;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
+
+import com.fuck.bili.ads.ui.FbaPrefs;
+
 import de.robv.android.xposed.XC_MethodHook;
+import de.robv.android.xposed.XposedBridge;
 import de.robv.android.xposed.XposedHelpers;
 
 /** 只拦截两个开屏接口；展示层跳过继续作为缓存广告兜底。 */
@@ -16,11 +26,25 @@ public final class BiliSplashSniper {
     private static final AtomicBoolean INSTALLED = new AtomicBoolean();
     private static final AtomicLong LIST_BLOCKED = new AtomicLong();
     private static final AtomicLong SHOW_BLOCKED = new AtomicLong();
+    private static final AtomicLong BRAND_HIDDEN = new AtomicLong();
+    private static final AtomicLong BRAND_SEEN = new AtomicLong();
 
     public static void hook(ClassLoader classLoader, DexKitHelper helper) {
+        hookEarly(classLoader);
+        hookDisplayFallback(classLoader, helper);
+    }
+
+    /** 不依赖 DexKit 的部分：请求拦截、品牌开屏隐藏、启动页配色。 */
+    public static void hookEarly(ClassLoader classLoader) {
         if (!INSTALLED.compareAndSet(false, true)) return;
         installRequestBlock(classLoader);
         if (DEBUG_INTERVAL) installDebugIntervals(classLoader);
+        installBrandSplashBlock(classLoader);
+        installSplashThemeHook(classLoader);
+    }
+
+    /** 依赖 DexKit 解析结果的兜底：存量缓存广告的跳过。 */
+    public static void hookDisplayFallback(ClassLoader classLoader, DexKitHelper helper) {
         installDisplayFallback(classLoader, helper);
     }
 
@@ -226,5 +250,169 @@ public final class BiliSplashSniper {
         }
     }
 
-    private BiliSplashSniper() { }
-}
+    /**
+     * 品牌开屏（22娘/33娘立绘）来自本地 {@code BrandSplashStorage}，不走
+     * {@code /x/v2/splash/*}，所以请求拦截对它无效。这里在 Fragment 视图创建/恢复时
+     * 把它的视图设为 GONE：宿主的计时、回调、跳转全部照常，只是不画出来。
+     */
+    private static void installBrandSplashBlock(ClassLoader loader) {
+        try {
+            final Class<?> fragment = XposedHelpers.findClass("androidx.fragment.app.Fragment", loader);
+            final XC_MethodHook hide = new XC_MethodHook() {
+                @Override
+                protected void afterHookedMethod(MethodHookParam param) {
+                    try {
+                        Object self = param.thisObject;
+                        if (self == null) {
+                            return;
+                        }
+                        String name = self.getClass().getName();
+                        String lower = name.toLowerCase(java.util.Locale.US);
+                        boolean brand = lower.contains("brandsplash");
+                        if (!brand && lower.contains("splash")) {
+                            long seen = BRAND_SEEN.incrementAndGet();
+                            if (seen <= 20) {
+                                Log.d(TAG, "[SplashSeen] fragment " + name);
+                            }
+                        }
+                        if (!brand) {
+                            return;
+                        }
+                        Object view = XposedHelpers.callMethod(self, "getView");
+                        if (!(view instanceof View)) {
+                            return;
+                        }
+                        ((View) view).setVisibility(View.GONE);
+                        long count = BRAND_HIDDEN.incrementAndGet();
+                        if (count <= 5) {
+                            Log.d(TAG, "[BrandSplash] hidden " + name + ", count=" + count);
+                        }
+                    } catch (Throwable ignore) {
+                        // 不打断宿主
+                    }
+                }
+            };
+            int hooked = 0;
+            for (String method : new String[]{"performViewCreated", "performResume", "onViewCreated"}) {
+                hooked += XposedBridge.hookAllMethods(fragment, method, hide).size();
+            }
+            Log.d(TAG, "[BrandSplashBlock] installed hooks=" + hooked);
+            installSplashActivityProbe(loader);
+        } catch (Throwable error) {
+            Log.d(TAG, "[BrandSplashBlock] FAILED: " + error);
+        }
+    }
+
+    /** 只记日志：下次品牌开屏出现时，日志会告诉我们它到底是哪个类。 */
+    private static void installSplashActivityProbe(ClassLoader loader) {
+        try {
+            final Class<?> activity = XposedHelpers.findClass("android.app.Activity", loader);
+            XposedBridge.hookAllMethods(activity, "onCreate", new XC_MethodHook() {
+                @Override
+                protected void afterHookedMethod(MethodHookParam param) {
+                    try {
+                        Object self = param.thisObject;
+                        if (self == null) {
+                            return;
+                        }
+                        String name = self.getClass().getName();
+                        if (!name.toLowerCase(java.util.Locale.US).contains("splash")) {
+                            return;
+                        }
+                        long seen = BRAND_SEEN.incrementAndGet();
+                        if (seen <= 20) {
+                            Log.d(TAG, "[SplashSeen] activity " + name);
+                        }
+                    } catch (Throwable ignore) {
+                        // 不打断宿主
+                    }
+                }
+            });
+        } catch (Throwable error) {
+            Log.d(TAG, "[SplashProbe] FAILED: " + error);
+        }
+    }
+
+    /**
+     * 启动页跟主题走。宿主的 splash 主题把底色写在 windowBackground 的 layer-list 里
+     * （纯色层 + 居中的 logo 位图），这里只替换纯色层，logo 的位置和尺寸保持原样。
+     */
+    private static void installSplashThemeHook(ClassLoader loader) {
+        try {
+            final Class<?> activity = XposedHelpers.findClass("android.app.Activity", loader);
+            XposedBridge.hookAllMethods(activity, "onCreate", new XC_MethodHook() {
+                @Override
+                protected void afterHookedMethod(MethodHookParam param) {
+                    try {
+                        Object self = param.thisObject;
+                        if (!(self instanceof Activity)) {
+                            return;
+                        }
+                        String name = self.getClass().getName();
+                        if (!name.endsWith("SplashShellActivity") && !name.endsWith("MainActivityV2")) {
+                            return;
+                        }
+                        applySplashTheme((Activity) self);
+                    } catch (Throwable ignore) {
+                        // 不打断宿主
+                    }
+                }
+            });
+            Log.d(TAG, "[SplashTheme] hook installed");
+        } catch (Throwable error) {
+            Log.d(TAG, "[SplashTheme] FAILED: " + error);
+        }
+    }
+
+    private static void applySplashTheme(Activity activity) {
+        boolean night = FbaPrefs.splashNight();
+        int color = night ? 0xFF17181A : 0xFFFFFFFF;
+        Window window = activity.getWindow();
+        if (window == null) {
+            return;
+        }
+        Drawable themed = null;
+        Drawable background = window.getDecorView().getBackground();
+        if (background instanceof LayerDrawable) {
+            try {
+                Drawable.ConstantState state = background.getConstantState();
+                Drawable copy = state == null ? null : state.newDrawable(activity.getResources()).mutate();
+                if (copy instanceof LayerDrawable) {
+                    LayerDrawable layers = (LayerDrawable) copy;
+                    boolean tinted = false;
+                    for (int i = 0; i < layers.getNumberOfLayers(); i++) {
+                        Drawable layer = layers.getDrawable(i);
+                        if (layer instanceof ColorDrawable) {
+                            ((ColorDrawable) layer).setColor(color);
+                            tinted = true;
+                        }
+                    }
+                    if (tinted) {
+                        themed = layers;
+                    }
+                }
+            } catch (Throwable ignore) {
+                // 退回纯色背景
+            }
+        }
+        if (themed == null) {
+            themed = new ColorDrawable(color);
+        }
+        window.setBackgroundDrawable(themed);
+
+        View decor = window.getDecorView();
+        if (decor != null) {
+            int flags = decor.getSystemUiVisibility();
+            if (night) {
+                flags &= ~View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR;
+            } else {
+                flags |= View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR;
+            }
+            decor.setSystemUiVisibility(flags);
+        }
+        Log.d(TAG, "[SplashTheme] applied night=" + night + " pref=" + FbaPrefs.splashTheme()
+                + " activity=" + activity.getClass().getSimpleName()
+                + " layered=" + (themed instanceof LayerDrawable));
+    }
+
+    private BiliSplashSniper() { }}

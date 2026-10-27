@@ -1,5 +1,7 @@
 package com.fuck.bili.ads;
 
+import android.os.Handler;
+import android.os.Looper;
 import android.util.Log;
 
 import org.luckypray.dexkit.DexKitBridge;
@@ -71,32 +73,19 @@ public class DexKitHelper {
     public final boolean IS_TESTING = BuildConfig.DEBUG;
 
     public void resolve(XC_LoadPackage.LoadPackageParam lpparam) {
-        File apkFile = new File(lpparam.appInfo.sourceDir);
-        long currentApkTime = apkFile.lastModified();
-        long currentModuleTime = 0;
-        try {
-            String modulePath = DexKitHelper.class.getProtectionDomain().getCodeSource().getLocation().getPath();
-            File moduleApk = new File(modulePath);
-            currentModuleTime = moduleApk.lastModified();
-        } catch (Exception e) {
-            Log.w(TAG, "Failed to get module apk time: " + e.getMessage());
-        }
-
-        File cacheFile = new File(lpparam.appInfo.dataDir, "cache/dexkit_hook_cache.properties");
-        Log.d(TAG, "cache file directory: " + cacheFile.getPath().toString());
+        long start = System.currentTimeMillis();
+        String cacheKey = cacheKeyFor(lpparam);
+        File cacheFile = cacheFileFor(lpparam);
         Properties cacheProps = new Properties();
         boolean needScan = true;
 
-        if (cacheFile.exists()) {
+        if (cacheFile != null && cacheFile.exists()) {
             try (FileInputStream fis = new FileInputStream(cacheFile)) {
                 cacheProps.load(fis);
-                String cachedTimeStr = cacheProps.getProperty("apk_last_modified");
-                String cachedModuleTimeStr = cacheProps.getProperty("module_last_modified");
+                String cachedKey = cacheProps.getProperty("cache_key");
 
-                if (cachedTimeStr != null && cachedTimeStr.equals(String.valueOf(currentApkTime))
-                        && cachedModuleTimeStr != null && cachedModuleTimeStr.equals(String.valueOf(currentModuleTime))
-                        && currentModuleTime != 0) {
-                    Log.d(TAG, "Hit DexKit cache. Neither host nor module updated, skipping scan.");
+                if (cacheKey.equals(cachedKey)) {
+                    Log.d(TAG, "Hit DexKit cache. Host/module unchanged, skipping scan.");
                     albumRecycleViewHolderClassName = cacheProps.getProperty("albumRecycleViewHolderClassName", albumRecycleViewHolderClassName);
                     publishArchiveCollectionFieldName = cacheProps.getProperty("publishArchiveCollectionFieldName", publishArchiveCollectionFieldName);
                     albumSelectPageViewClassName = cacheProps.getProperty("albumSelectPageViewClassName", albumSelectPageViewClassName);
@@ -474,8 +463,7 @@ public class DexKitHelper {
                     Log.e(TAG, "requestInterceptorClassDataList is empty");
                 else REQUEST_INTERCEPTOR = requestInterceptorClassDataList.get(0).getName();
 
-                cacheProps.setProperty("apk_last_modified", String.valueOf(currentApkTime));
-                cacheProps.setProperty("module_last_modified", String.valueOf(currentModuleTime));
+                cacheProps.setProperty("cache_key", cacheKey);
                 cacheProps.setProperty("albumRecycleViewHolderClassName", albumRecycleViewHolderClassName);
                 cacheProps.setProperty("publishArchiveCollectionFieldName", publishArchiveCollectionFieldName);
                 cacheProps.setProperty("albumSelectPageViewClassName", albumSelectPageViewClassName);
@@ -508,14 +496,86 @@ public class DexKitHelper {
 
 
                 cacheFile.getParentFile().mkdirs();
-                try (FileOutputStream fos = new FileOutputStream(cacheFile)) {
+                // Atomic: write a sibling file first, then rename, so a second process
+                // scanning in parallel can never read a half-written cache.
+                File tmp = new File(cacheFile.getParentFile(), cacheFile.getName() + ".tmp");
+                try (FileOutputStream fos = new FileOutputStream(tmp)) {
                     cacheProps.store(fos, "DexKit Obfuscation Cache for BiliBili");
-                    Log.d(TAG, "DexKit scan complete, results saved to cache.");
                 }
+                if (!tmp.renameTo(cacheFile)) {
+                    //noinspection ResultOfMethodCallIgnored
+                    cacheFile.delete();
+                    if (!tmp.renameTo(cacheFile)) {
+                        Log.w(TAG, "cache rename failed, left " + tmp.getName());
+                    }
+                }
+                Log.d(TAG, "DexKit scan complete in " + (System.currentTimeMillis() - start)
+                        + "ms, cache saved, key=" + cacheKey);
             } catch (Exception e) {
                 Log.d(TAG, "Exception during DexKit scan: " + e.getMessage());
             }
         }
+    }
+
+    /**
+     * Cache identity: module build + host APK fingerprint. LSPosed 注入的 classloader
+     * 拿不到 CodeSource（null），所以不能用模块 APK 的 mtime 做 key。
+     */
+    private static String cacheKeyFor(XC_LoadPackage.LoadPackageParam lpparam) {
+        long apkTime = 0L;
+        long apkSize = 0L;
+        try {
+            File apk = new File(lpparam.appInfo.sourceDir);
+            apkTime = apk.lastModified();
+            apkSize = apk.length();
+        } catch (Throwable ignore) {
+            // 只影响 key 精度
+        }
+        return "m" + BuildConfig.VERSION_CODE + "-h" + apkTime + "-s" + apkSize;
+    }
+
+    private static File cacheFileFor(XC_LoadPackage.LoadPackageParam lpparam) {
+        try {
+            return new File(lpparam.appInfo.dataDir, "cache/dexkit_hook_cache.properties");
+        } catch (Throwable t) {
+            return null;
+        }
+    }
+
+    /** 快速判断（几毫秒）：当前宿主 + 模块构建是否已有可用缓存。 */
+    public boolean cacheValid(XC_LoadPackage.LoadPackageParam lpparam) {
+        File file = cacheFileFor(lpparam);
+        if (file == null || !file.exists()) {
+            return false;
+        }
+        Properties props = new Properties();
+        try (FileInputStream fis = new FileInputStream(file)) {
+            props.load(fis);
+            return cacheKeyFor(lpparam).equals(props.getProperty("cache_key"));
+        } catch (Throwable t) {
+            return false;
+        }
+    }
+
+    /** 后台线程扫描；{@code onDone} 一定回到主线程执行。 */
+    public void resolveAsync(final XC_LoadPackage.LoadPackageParam lpparam, final Runnable onDone) {
+        final Handler handler = new Handler(Looper.getMainLooper());
+        Thread thread = new Thread(new Runnable() {
+            @Override
+            public void run() {
+                try {
+                    resolve(lpparam);
+                } catch (Throwable t) {
+                    Log.d(TAG, "async resolve failed: " + t);
+                } finally {
+                    if (onDone != null) {
+                        handler.post(onDone);
+                    }
+                }
+            }
+        }, "fba-dexkit");
+        thread.setPriority(Thread.NORM_PRIORITY - 1);
+        thread.start();
     }
 
     public ClassData getOuterClass(DexKitBridge bridge, ClassData innerClassData) {

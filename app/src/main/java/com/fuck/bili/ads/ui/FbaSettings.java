@@ -118,6 +118,10 @@ public final class FbaSettings {
                     "在列表入口把广告卡摘掉，不再进入播放列表（失败自动退回滑动跳过）",
                     FbaPrefs.storyFilter(), titleColor, subColor, divider,
                     checked -> FbaPrefs.setStoryFilter(checked)));
+            content.addView(switchRow(context, "剔除时提示",
+                    "每次剔除广告卡时用 Toast 告知剔除了几条，并写入日志",
+                    FbaPrefs.storyFilterToast(), titleColor, subColor, divider,
+                    checked -> FbaPrefs.setStoryFilterToast(checked)));
             content.addView(switchRow(context, "跳过时提示",
                     "使用 B 站自带的底部 Toast",
                     FbaPrefs.storyToast(), titleColor, subColor, divider,
@@ -126,6 +130,9 @@ public final class FbaSettings {
                     "在小视频分享面板显示「标记广告」按钮",
                     FbaPrefs.shareMark(), titleColor, subColor, divider,
                     checked -> FbaPrefs.setShareMark(checked)));
+            content.addView(actionRow(context, "启动页配色",
+                    splashThemeLabel() + " · 点击切换",
+                    titleColor, subColor, divider, v -> chooseSplashTheme(context)));
 
             // ---- 调试 ----
             content.addView(section(context, "调试", subColor));
@@ -142,6 +149,10 @@ public final class FbaSettings {
             content.addView(actionRow(context, "测试宿主 Toast",
                     "验证 ToastHelper 是否可用",
                     titleColor, subColor, divider, v -> testToast(context)));
+            content.addView(actionRow(context, "测试剔除提示",
+                    "按「剔除 3 条」触发一次 Toast，不改动播放列表",
+                    titleColor, subColor, divider,
+                    v -> StoryAdFilter.debugToast(activityOf(context), 3)));
 
             // ---- 诊断 ----
             content.addView(section(context, "诊断", subColor));
@@ -165,6 +176,32 @@ public final class FbaSettings {
             content.addView(actionRow(context, "清空日志",
                     "删除 events.log",
                     titleColor, subColor, divider, v -> confirmClear(context)));
+
+            // ---- 更新 ----
+            content.addView(section(context, "更新", subColor));
+            UpdateChecker.Release update = UpdateChecker.available();
+            if (update != null) {
+                content.addView(updateBanner(context, update, subColor, divider));
+            }
+            content.addView(switchRow(context, "启动时自动检查",
+                    "冷启动约 12 秒后查询一次，6 小时内不重复",
+                    FbaPrefs.updateAuto(), titleColor, subColor, divider,
+                    checked -> FbaPrefs.setUpdateAuto(checked)));
+            content.addView(switchRow(context, "包含测试版",
+                    "同时匹配 pre-release（tag 带 -pre 的版本）",
+                    FbaPrefs.updatePrerelease(), titleColor, subColor, divider,
+                    checked -> FbaPrefs.setUpdatePrerelease(checked)));
+            content.addView(infoRow(context, "当前版本", UpdateChecker.currentVersion(),
+                    titleColor, subColor, divider));
+            content.addView(infoRow(context, "最新版本", UpdateChecker.latestLabel(),
+                    titleColor, subColor, divider));
+            content.addView(actionRow(context, "立即检查更新",
+                    UpdateChecker.statusHint(), titleColor, subColor, divider,
+                    v -> UpdateChecker.check(context, true)));
+            content.addView(actionRow(context, "打开 Release 页面",
+                    UpdateChecker.RELEASES_PAGE.replace("https://", ""),
+                    titleColor, subColor, divider,
+                    v -> UpdateChecker.openReleasePage(context)));
 
             // ---- 关于 ----
             content.addView(section(context, "关于", subColor));
@@ -225,9 +262,17 @@ public final class FbaSettings {
         bar.addView(title, titleParams);
 
         TextView version = new TextView(context);
-        version.setText(versionName(context));
+        UpdateChecker.Release update = UpdateChecker.available();
+        if (update != null) {
+            version.setText(versionName(context) + " · 可更新");
+            version.setTextColor(ACCENT);
+            version.setPadding(0, dp(context, 4), 0, dp(context, 4));
+            version.setOnClickListener(v -> UpdateChecker.showDialog(context, update));
+        } else {
+            version.setText(versionName(context));
+            version.setTextColor(subColor);
+        }
         version.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
-        version.setTextColor(subColor);
         bar.addView(version);
         return bar;
     }
@@ -280,6 +325,75 @@ public final class FbaSettings {
         tv.setEllipsize(TextUtils.TruncateAt.MIDDLE);
         tv.setMaxWidth(dp(context, 200));
         return row(context, title, null, tv, titleColor, subColor, divider, null);
+    }
+
+    /** Accent banner with the "前往下载" button, only when a newer release exists. */
+    private static View updateBanner(final Context context, final UpdateChecker.Release release,
+                                     int subColor, int divider) {
+        LinearLayout wrap = new LinearLayout(context);
+        wrap.setOrientation(LinearLayout.VERTICAL);
+
+        LinearLayout banner = new LinearLayout(context);
+        banner.setOrientation(LinearLayout.HORIZONTAL);
+        banner.setGravity(Gravity.CENTER_VERTICAL);
+        banner.setBackgroundColor(0x12FB7299);
+        banner.setPadding(dp(context, 16), dp(context, 14), dp(context, 16), dp(context, 14));
+
+        LinearLayout texts = new LinearLayout(context);
+        texts.setOrientation(LinearLayout.VERTICAL);
+        texts.setLayoutParams(new LinearLayout.LayoutParams(
+                0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+
+        TextView title = new TextView(context);
+        title.setText("发现新版本 " + release.version());
+        title.setTextSize(TypedValue.COMPLEX_UNIT_SP, 15);
+        title.setTypeface(Typeface.DEFAULT_BOLD);
+        title.setTextColor(ACCENT);
+        texts.addView(title);
+
+        TextView sub = new TextView(context);
+        sub.setText(release.channel() + " · " + release.dateText());
+        sub.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
+        sub.setTextColor(subColor);
+        sub.setPadding(0, dp(context, 2), 0, 0);
+        texts.addView(sub);
+        banner.addView(texts);
+
+        TextView button = pill(context, "前往下载");
+        button.setOnClickListener(v -> UpdateChecker.open(context, release.url));
+        LinearLayout.LayoutParams buttonParams = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        buttonParams.leftMargin = dp(context, 12);
+        banner.addView(button, buttonParams);
+
+        banner.setClickable(true);
+        banner.setOnClickListener(v -> UpdateChecker.showDialog(context, release));
+        wrap.addView(banner);
+
+        View lineDivider = new View(context);
+        lineDivider.setBackgroundColor(divider);
+        LinearLayout.LayoutParams dividerParams = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, Math.max(1, dp(context, 0.5f)));
+        dividerParams.leftMargin = dp(context, 16);
+        wrap.addView(lineDivider, dividerParams);
+        return wrap;
+    }
+
+    /** Small accent-filled call-to-action chip. */
+    private static TextView pill(Context context, String text) {
+        TextView view = new TextView(context);
+        view.setText(text);
+        view.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
+        view.setTypeface(Typeface.DEFAULT_BOLD);
+        view.setTextColor(Color.WHITE);
+        view.setGravity(Gravity.CENTER);
+        view.setPadding(dp(context, 14), dp(context, 7), dp(context, 14), dp(context, 7));
+        GradientDrawable shape = new GradientDrawable();
+        shape.setColor(ACCENT);
+        shape.setCornerRadius(dp(context, 18));
+        view.setBackground(shape);
+        view.setClickable(true);
+        return view;
     }
 
     private static View row(final Context context, String title, String subtitle, View right,
@@ -337,6 +451,41 @@ public final class FbaSettings {
     }
 
     // ---------------------------------------------------------------- actions
+
+    private static String splashThemeLabel() {
+        String mode = FbaPrefs.splashTheme();
+        if ("light".equals(mode)) {
+            return "浅色";
+        }
+        if ("dark".equals(mode)) {
+            return "深色";
+        }
+        return "跟随系统";
+    }
+
+    private static void chooseSplashTheme(final Context context) {
+        final String[] values = {"auto", "light", "dark"};
+        String mode = FbaPrefs.splashTheme();
+        int checked = 0;
+        for (int i = 0; i < values.length; i++) {
+            if (values[i].equals(mode)) {
+                checked = i;
+            }
+        }
+        new AlertDialog.Builder(context)
+                .setTitle("启动页配色")
+                .setSingleChoiceItems(new String[]{"跟随系统", "浅色", "深色"}, checked, (dialog, which) -> {
+                    FbaPrefs.setSplashTheme(values[which]);
+                    FbaLog.i("pref 启动页配色 = " + values[which]);
+                    dialog.dismiss();
+                    if (current != null && current.isShowing()) {
+                        current.dismiss();
+                    }
+                    show(context);
+                })
+                .setNegativeButton("取消", null)
+                .show();
+    }
 
     private static void markCurrent(Context context) {
         Activity activity = activityOf(context);

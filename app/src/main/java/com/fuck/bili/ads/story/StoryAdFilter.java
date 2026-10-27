@@ -1,10 +1,12 @@
 package com.fuck.bili.ads.story;
 
 import android.app.Activity;
+import android.content.Context;
 import android.view.ViewGroup;
 
 import com.fuck.bili.ads.ui.FbaLog;
 import com.fuck.bili.ads.ui.FbaPrefs;
+import com.fuck.bili.ads.ui.FbaRuntime;
 
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
@@ -45,6 +47,9 @@ public final class StoryAdFilter {
 
     /** Never remove more than this many cards in a single scan pass. */
     private static final int MAX_PER_PASS = 4;
+
+    /** Prefix of the removal toast; the count is filled in at runtime. */
+    private static final String TOAST_REMOVED = "已剔除 %d 条广告！FUCK BILI ADS！";
 
     private static final Set<String> HOOKED = new HashSet<>();
 
@@ -171,13 +176,56 @@ public final class StoryAdFilter {
             return null;
         }
         filteredTotal += dropped;
-        FbaLog.i("story filter: dropped " + dropped + " ad card(s) from batch of " + src.size()
-                + " -> " + kept.size());
+        notifyRemoved(null, dropped, "批次 " + src.size() + "→" + kept.size());
         return kept;
     }
 
-    // ------------------------------------------------------------------ prune
+    /**
+     * Logs one removal event and — when the user kept the toast enabled — tells
+     * them how many cards were just dropped. Runs on the main thread because the
+     * host toast helper touches views.
+     *
+     * @param activity page activity when known; otherwise the foreground one is used
+     * @param count    cards removed by this event
+     * @param source   short, human readable origin, used for the log only
+     */
+    private static void notifyRemoved(Activity activity, int count, String source) {
+        if (count <= 0) {
+            return;
+        }
+        long total = filteredTotal + prunedTotal;
+        FbaLog.i("[FILTER] 剔除 " + count + " 条广告（" + source + "），累计 " + total);
+        if (!FbaPrefs.storyFilterToast()) {
+            return;
+        }
+        Context context = activity != null ? activity : FbaRuntime.topActivity();
+        if (context == null) {
+            context = FbaRuntime.context();
+        }
+        if (context == null) {
+            return;
+        }
+        final Context target = context;
+        final String text = String.format(java.util.Locale.US, TOAST_REMOVED, count);
+        FbaRuntime.onMain(new Runnable() {
+            @Override
+            public void run() {
+                HostToast.show(target, text);
+                FbaLog.i("[TOAST] " + text);
+            }
+        });
+    }
 
+    /**
+     * Debug entry used by the settings page: fires the removal toast without
+     * touching the playlist, so the wording and the switch can be checked
+     * without waiting for a real ad.
+     */
+    public static void debugToast(Activity activity, int count) {
+        notifyRemoved(activity, count, "调试");
+    }
+
+    // ------------------------------------------------------------------ prune
     /**
      * Removes ad cards that are already in the list ahead of {@code currentPos}
      * (the first batch usually arrives before our hooks are in place).
@@ -210,7 +258,7 @@ public final class StoryAdFilter {
             }
             if (removed > 0) {
                 prunedTotal += removed;
-                FbaLog.i("story filter: pruned " + removed + " ad card(s) after pos " + currentPos);
+                notifyRemoved(activity, removed, "存量 pos>" + currentPos);
             }
             return removed;
         } catch (Throwable t) {

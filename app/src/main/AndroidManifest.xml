@@ -3,6 +3,8 @@
     xmlns:tools="http://schemas.android.com/tools">
 
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <!-- Update check queries api.github.com from inside the host process. -->
+    <uses-permission android:name="android.permission.INTERNET" />
 
     <!-- Settings panel shows the module version; package visibility needs this on API 30+. -->
     <queries>

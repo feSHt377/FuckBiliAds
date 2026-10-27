@@ -20,8 +20,19 @@ public final class FbaPrefs {
     private static final String KEY_STORY_SKIP = "story_skip";
     private static final String KEY_STORY_TOAST = "story_toast";
     private static final String KEY_STORY_FILTER = "story_filter";
+    private static final String KEY_STORY_FILTER_TOAST = "story_filter_toast";
     private static final String KEY_VERBOSE = "verbose";
     private static final String KEY_SHARE_MARK = "share_mark";
+    private static final String KEY_SPLASH_THEME = "splash_theme";
+
+    // ---- update checker ----
+    private static final String KEY_UPDATE_AUTO = "update_auto";
+    private static final String KEY_UPDATE_PRERELEASE = "update_prerelease";
+    private static final String KEY_UPDATE_CHECKED_AT = "update_checked_at";
+    private static final String KEY_UPDATE_DISMISSED = "update_dismissed";
+    private static final String KEY_UPDATE_LATEST = "update_latest";
+    private static final String KEY_UPDATE_AVAILABLE = "update_available";
+    private static final String KEY_UPDATE_ERROR = "update_error";
 
     private static Context context;
 
@@ -72,6 +83,15 @@ public final class FbaPrefs {
         putBoolean(KEY_STORY_FILTER, value);
     }
 
+    /** Toast how many ad cards were dropped from the playlist. */
+    public static boolean storyFilterToast() {
+        return getBoolean(KEY_STORY_FILTER_TOAST, true);
+    }
+
+    public static void setStoryFilterToast(boolean value) {
+        putBoolean(KEY_STORY_FILTER_TOAST, value);
+    }
+
     public static boolean verbose() {
         return getBoolean(KEY_VERBOSE, false);
     }
@@ -86,6 +106,94 @@ public final class FbaPrefs {
 
     public static void setShareMark(boolean value) {
         putBoolean(KEY_SHARE_MARK, value);
+    }
+
+    // ------------------------------------------------------------ splash theme
+
+    /** Startup page palette: "auto" (follow system), "light" or "dark". */
+    public static String splashTheme() {
+        return getString(KEY_SPLASH_THEME, "auto");
+    }
+
+    public static void setSplashTheme(String mode) {
+        putString(KEY_SPLASH_THEME, mode == null ? "auto" : mode);
+    }
+
+    /** Resolved night flag for the startup page. */
+    public static boolean splashNight() {
+        String mode = splashTheme();
+        if ("dark".equals(mode)) {
+            return true;
+        }
+        if ("light".equals(mode)) {
+            return false;
+        }
+        int uiMode = android.content.res.Resources.getSystem().getConfiguration().uiMode;
+        return (uiMode & android.content.res.Configuration.UI_MODE_NIGHT_MASK)
+                == android.content.res.Configuration.UI_MODE_NIGHT_YES;
+    }
+
+    // ------------------------------------------------------------- update check
+
+    /** Query GitHub for a newer release shortly after the host starts. */
+    public static boolean updateAuto() {
+        return getBoolean(KEY_UPDATE_AUTO, true);
+    }
+
+    public static void setUpdateAuto(boolean value) {
+        putBoolean(KEY_UPDATE_AUTO, value);
+    }
+
+    /** Include pre-releases in the comparison. */
+    public static boolean updatePrerelease() {
+        return getBoolean(KEY_UPDATE_PRERELEASE, true);
+    }
+
+    public static void setUpdatePrerelease(boolean value) {
+        putBoolean(KEY_UPDATE_PRERELEASE, value);
+    }
+
+    public static long updateCheckedAt() {
+        return getLong(KEY_UPDATE_CHECKED_AT, 0L);
+    }
+
+    public static void setUpdateCheckedAt(long value) {
+        putLong(KEY_UPDATE_CHECKED_AT, value);
+    }
+
+    /** Tag the user asked to skip; it stays reachable from the release page. */
+    public static String updateDismissed() {
+        return getString(KEY_UPDATE_DISMISSED, "");
+    }
+
+    public static void setUpdateDismissed(String tag) {
+        putString(KEY_UPDATE_DISMISSED, tag == null ? "" : tag);
+    }
+
+    /** Newest release seen by the last successful check, as JSON. */
+    public static String updateLatest() {
+        return getString(KEY_UPDATE_LATEST, "");
+    }
+
+    public static void setUpdateLatest(String json) {
+        putString(KEY_UPDATE_LATEST, json);
+    }
+
+    /** Release that was newer than this build at the last check, as JSON. */
+    public static String updateAvailable() {
+        return getString(KEY_UPDATE_AVAILABLE, "");
+    }
+
+    public static void setUpdateAvailable(String json) {
+        putString(KEY_UPDATE_AVAILABLE, json);
+    }
+
+    public static String updateError() {
+        return getString(KEY_UPDATE_ERROR, "");
+    }
+
+    public static void setUpdateError(String message) {
+        putString(KEY_UPDATE_ERROR, message == null ? "" : message);
     }
 
     private static boolean getBoolean(String key, boolean def) {
@@ -103,6 +211,49 @@ public final class FbaPrefs {
             SharedPreferences sp = prefs();
             if (sp != null) {
                 sp.edit().putBoolean(key, value).apply();
+            }
+        } catch (Throwable t) {
+            Log.d(TAG, "prefs write failed: " + t);
+        }
+    }
+
+    private static long getLong(String key, long def) {
+        try {
+            SharedPreferences sp = prefs();
+            return sp == null ? def : sp.getLong(key, def);
+        } catch (Throwable t) {
+            Log.d(TAG, "prefs read failed: " + t);
+            return def;
+        }
+    }
+
+    private static void putLong(String key, long value) {
+        try {
+            SharedPreferences sp = prefs();
+            if (sp != null) {
+                sp.edit().putLong(key, value).apply();
+            }
+        } catch (Throwable t) {
+            Log.d(TAG, "prefs write failed: " + t);
+        }
+    }
+
+    private static String getString(String key, String def) {
+        try {
+            SharedPreferences sp = prefs();
+            String value = sp == null ? null : sp.getString(key, def);
+            return value == null ? def : value;
+        } catch (Throwable t) {
+            Log.d(TAG, "prefs read failed: " + t);
+            return def;
+        }
+    }
+
+    private static void putString(String key, String value) {
+        try {
+            SharedPreferences sp = prefs();
+            if (sp != null) {
+                sp.edit().putString(key, value).apply();
             }
         } catch (Throwable t) {
             Log.d(TAG, "prefs write failed: " + t);

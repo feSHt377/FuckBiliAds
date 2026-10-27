@@ -28,6 +28,7 @@ import com.fuck.bili.ads.ui.FbaPrefs;
 import com.fuck.bili.ads.ui.FbaRuntime;
 import com.fuck.bili.ads.ui.MineServiceEntry;
 import com.fuck.bili.ads.ui.StoryShareMark;
+import com.fuck.bili.ads.ui.UpdateChecker;
 
 public class MainHook implements IXposedHookLoadPackage {
 
@@ -52,8 +53,16 @@ public class MainHook implements IXposedHookLoadPackage {
         // Settings + event log live in the host process (the UI is opened from 更多服务).
         FbaLog.init(AndroidAppHelper.currentApplication());
         FbaPrefs.init(AndroidAppHelper.currentApplication());
+        final String processName = lpparam.processName == null ? "" : lpparam.processName;
+        final boolean mainProcess = processName.isEmpty() || processName.equals(lpparam.packageName);
         FbaLog.i("module load start: pkg=" + lpparam.packageName
-                + " process=" + FbaRuntime.processName());
+                + " process=" + processName + " main=" + mainProcess);
+
+        if (!mainProcess) {
+            // 只有主进程有界面：其它进程装 hook 没有收益，却要多扫一遍 268 MB dex。
+            FbaLog.i("[SKIP] non-main process, no hooks installed: " + processName);
+            return;
+        }
 
         try {
             System.loadLibrary("dexkit");
@@ -62,19 +71,43 @@ public class MainHook implements IXposedHookLoadPackage {
         }
 
 
+        final XC_LoadPackage.LoadPackageParam param = lpparam;
+        final ClassLoader cl = lpparam.classLoader;
+
+        // ---- 不依赖 DexKit 的 hook：立刻装，启动页/弹幕/小视频等功能不等扫描 ----
+        install("开屏拦截", () -> BiliSplashSniper.hookEarly(cl));
+        install("播放页广告", () -> BiliAdSniper.hook(cl));
+        install("底部导航", () -> BiliBottomNavSniper.hook(cl));
+        install("抓包", () -> PacketSniffer.hook(cl));
+        install("弹幕跳转", () -> DanmuJump.hook(cl));
+        install("关注页广告", () -> FollowingListAdSniper.hook(cl));
+        install("关注页设置", () -> FollowingTopLeftButton.hook(cl));
+        install("小视频", () -> StoryAdSniper.hook(cl));
+        install("设置入口", () -> MineServiceEntry.hook(cl));
+        install("分享标记", () -> StoryShareMark.hook(cl));
+        install("更新检查", () -> UpdateChecker.startAutoCheck(processName, lpparam.packageName));
+
+        final boolean shouldRunDescCopyFix = !isOldHost(lpparam);
         final DexKitHelper helper = new DexKitHelper();
-        try {
-            helper.resolve(lpparam);
-        } catch (Throwable t) {
-            FbaLog.e("[HOOK FAIL] DexKit resolve", t);
+        final Runnable dependent = () -> installDependent(param, helper, shouldRunDescCopyFix);
+
+        if (helper.cacheValid(lpparam)) {
+            long started = System.currentTimeMillis();
+            try {
+                helper.resolve(lpparam);
+            } catch (Throwable t) {
+                FbaLog.e("[HOOK FAIL] DexKit resolve", t);
+            }
+            FbaLog.i("[PERF] dexkit cache hit, load=" + (System.currentTimeMillis() - started) + "ms");
+            dependent.run();
+        } else {
+            FbaLog.i("[PERF] dexkit cache miss, scanning in background (first launch after update)");
+            helper.resolveAsync(lpparam, dependent);
         }
+    }
 
-        log("开始执行业务 Hook 逻辑...");
-        install("基础 Hook", () -> executeOriginalHooks(lpparam, helper));
-        install("广告卡片", () -> BiliCardAdSniper.hook(lpparam.classLoader, helper));
-
-        // ---- 新增：版本号检测逻辑 ----
-        boolean shouldRunDescCopyFix = true;
+    /** 宿主版本是否低于 descCopyFix 的门槛（8.9.0）。 */
+    private static boolean isOldHost(XC_LoadPackage.LoadPackageParam lpparam) {
         try {
             Object activityThread = XposedHelpers.callStaticMethod(
                     XposedHelpers.findClass("android.app.ActivityThread", null),
@@ -84,44 +117,33 @@ public class MainHook implements IXposedHookLoadPackage {
                 Context systemContext = (Context) XposedHelpers.callMethod(activityThread, "getSystemContext");
                 PackageInfo packageInfo = systemContext.getPackageManager().getPackageInfo(lpparam.packageName, 0);
                 int versionCode = packageInfo.versionCode;
-
                 log("检测到宿主版本号: " + versionCode);
-
-                if (versionCode <= 8090300) {
-                    shouldRunDescCopyFix = false;
-                }
+                return versionCode <= 8090300;
             }
         } catch (Throwable t) {
             log("获取宿主版本号失败，将默认执行 descCopyFix: " + t.getMessage());
         }
-        final XC_LoadPackage.LoadPackageParam param = lpparam;
-        install("播放页广告", () -> BiliAdSniper.hook(param.classLoader));
-        install("开屏广告", () -> BiliSplashSniper.hook(param.classLoader, helper));
-        install("视频提及", () -> BiliMentionedSniper.hook(param.classLoader, helper));
-        install("底部导航", () -> BiliBottomNavSniper.hook(param.classLoader));
-        install("全局广告", () -> GlobalAdSniperEngine.hook(param.classLoader, helper));
-        install("抓包", () -> PacketSniffer.hook(param.classLoader));
-        install("大会员预测", () -> VIPPredict.hook(param.classLoader, helper));
-        install("直播间广告", () -> LiveRoomAdSniper.hook(param.classLoader, helper));
-        install("免流提示", () -> FreeDataToastSniper.hook(param.classLoader, helper));
-        install("弹幕跳转", () -> DanmuJump.hook(param.classLoader));
-        install("关注页广告", () -> FollowingListAdSniper.hook(param.classLoader));
-        install("关注页设置", () -> FollowingTopLeftButton.hook(param.classLoader));
-        install("小视频", () -> StoryAdSniper.hook(param.classLoader));
-        install("设置入口", () -> MineServiceEntry.hook(param.classLoader));
-        install("分享标记", () -> StoryShareMark.hook(param.classLoader));
-//        VipJsonTestHook.hook(lpparam.classLoader);
-//        EffectiveVipTesting.hook(lpparam.classLoader);
+        return false;
+    }
 
-
+    /** 依赖 DexKit 解析结果的 hook：缓存命中时立刻执行，否则等后台扫描完成。 */
+    private void installDependent(XC_LoadPackage.LoadPackageParam param, DexKitHelper helper,
+                                  boolean shouldRunDescCopyFix) {
+        ClassLoader cl = param.classLoader;
+        install("基础 Hook", () -> executeOriginalHooks(param, helper));
+        install("广告卡片", () -> BiliCardAdSniper.hook(cl, helper));
+        install("开屏跳过", () -> BiliSplashSniper.hookDisplayFallback(cl, helper));
+        install("视频提及", () -> BiliMentionedSniper.hook(cl, helper));
+        install("全局广告", () -> GlobalAdSniperEngine.hook(cl, helper));
+        install("大会员预测", () -> VIPPredict.hook(cl, helper));
+        install("直播间广告", () -> LiveRoomAdSniper.hook(cl, helper));
+        install("免流提示", () -> FreeDataToastSniper.hook(cl, helper));
         if (shouldRunDescCopyFix) {
             install("简介复制", () -> descCopyFix(param, helper));
         } else {
             log("宿主版本号小于 8.9.0(8090300)，跳过 descCopyFix 逻辑。");
         }
-
         FbaLog.i("[BOOT] hooks done: " + FbaRuntime.summary());
-        // Announce load status once the process is far enough along to toast.
         FbaRuntime.announce(2500L);
     }
 

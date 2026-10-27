@@ -6,7 +6,7 @@
 
 **哔哩哔哩 Xposed 去广告模块 · 小视频广告自动跳过**
 
-![version](https://img.shields.io/badge/version-1.0.9%20pre--release-ff2d55)
+![version](https://img.shields.io/badge/version-1.1.0-ff2d55)
 [![xposed repo](https://img.shields.io/badge/Xposed%20Repo-listed-00aeec)](https://modules.lsposed.org/module/io.github.fesht377.biliads/)
 ![host](https://img.shields.io/badge/host-9.16.1%20tested-00aeec)
 ![platform](https://img.shields.io/badge/platform-Android%208.0%2B-3ddc84)
@@ -27,25 +27,54 @@
 本项目基于 [fredoseep/biliDanmuCheck](https://github.com/fredoseep/biliDanmuCheck) 二次开发，
 包名、应用名、图标与发布流程均已重做，后续由本仓库独立维护。
 
+**定位：综合集成型模块。** 开屏、信息流、播放页、直播间、小视频、弹幕这几条链路的去广告能力
+都收在同一个包里，共用一套设置页、一套日志和一套更新检查——不用为了不同广告位装好几个模块。
+
 > **最高实测宿主版本：哔哩哔哩 `9.16.1`（versionCode 9161100）**，在 LSPosed 2.2.1 与 LSPatch 1.2 下均已验证。
 > 更早的 `9.15.0` 同样可用，其它版本的兼容情况见 [兼容性](#兼容性)。
 
 ## 功能
 
+### 开屏
+
 | 功能 | 说明 |
 |---|---|
-| 开屏广告 | 从请求处拦截，不再展示 |
-| 主页 / 搜索 / 动态 Feed 广告 | 卡片级过滤，支持关键词与正则 |
-| 关注页广告与抽奖 | 单独开关，可自定义过滤规则 |
+| 开屏广告拦截 | 在 OkHttp 拦截器里给 `/x/v2/splash/list`、`/x/v2/splash/show` 返回空响应，广告不进展示层 |
+| 品牌开屏隐藏 | 「22娘/33娘」本地立绘来自 `BrandSplashStorage`，不走广告接口，这里在 Fragment 显示阶段直接隐藏 |
+| 启动页配色 | 启动页底色可选 **跟随系统 / 浅色 / 深色**；深色下不再白闪，logo 位置保持不变 |
+
+### 信息流
+
+| 功能 | 说明 |
+|---|---|
+| 主页 / 搜索 / 动态 Feed | 卡片级过滤，支持关键词与正则 |
+| 关注页广告与抽奖 | 独立开关，规则可自定义 |
 | 直播间广告 | 直播间内广告位清理 |
+
+### 播放
+
+| 功能 | 说明 |
+|---|---|
 | 播放页广告 | 播放器下方推广位、暂停页广告 |
-| **小视频广告自动跳过** | 检测到 `feedIsAd` 即跳下一条，并弹 B 站 Toast |
-| **彻底剔除广告（实验，1.0.9）** | 在播放列表入口直接摘掉广告卡，不再进入列表、不渲染、不预加载 |
-| **设置入口** | 「我的 → 更多服务」新增 `FuckBiliAds` 入口，界面沿用 B 站配色与控件 |
-| **手动标记** | 小视频分享面板内「标记广告」按钮，把当前条目字段写入日志 |
-| **日志查看 / 导出 / 清空** | 设置页内可查看、复制、分享或保存到 `Download/FuckBiliAds` |
-| 弹幕发送者查询 | 点击弹幕「复制」即可跳转到发送者主页 |
 | 播放器替换 | 旧版本提示播放器不兼容时可替换目标版本播放器 |
+| 弹幕发送者查询 | 点击弹幕「复制」直接跳到发送者主页 |
+
+### 小视频（重点）
+
+| 功能 | 说明 |
+|---|---|
+| 广告自动跳过 | 命中 `adInfo.feedIsAd` 立即翻下一条，弹 `检测到广告，已跳过！FUCK BILI ADS！` |
+| 彻底剔除（实验） | 在播放列表入口摘掉广告卡，不进列表、不渲染、不预加载；每次剔除用 Toast 报条数（可单独关闭） |
+| 手动标记 | 分享面板「标记广告」按钮，把当前条目字段写入日志 |
+
+### 集成体验
+
+| 功能 | 说明 |
+|---|---|
+| 设置入口 | 「我的 → 更多服务」新增 `FuckBiliAds`，界面沿用 B 站配色与控件 |
+| 日志 | 文件 + logcat 双写，设置页可查看 / 导出 / 清空 |
+| 更新检查 | 冷启动后查询 GitHub Release，有新版弹窗并提供「前往下载」 |
+| 启动性能 | 非主进程不再扫 dex；缓存按「模块版本 + 宿主指纹」失效；缓存缺失时后台扫描，不阻塞启动 |
 
 ## 安装
 
@@ -125,10 +154,11 @@ adb logcat -s FuckBiliAds
 
 | 分组 | 内容 |
 |---|---|
-| 功能 | 小视频广告自动跳过、跳过时提示、分享面板标记入口 |
+| 功能 | 小视频广告自动跳过、彻底剔除广告（实验）、跳过时提示、剔除时提示、分享面板标记入口、启动页配色 |
 | 调试 | 标记当前条目、复制页面诊断、详细日志、测试宿主 Toast |
 | 诊断 | 模块状态、小视频最近扫描、日志落盘状态、播报模块状态 |
 | 日志 | 查看最近日志、导出日志（分享文本 + 保存到 Download）、清空日志 |
+| 更新 | 启动时自动检查、包含测试版、当前 / 最新版本、立即检查、打开 Release 页面 |
 | 关于 | 模块版本、宿主版本、Hook 状态、日志路径 |
 
 日志落在宿主私有目录 `files/fuckbiliads/events.log`（512 KB 滚动），同时输出到 logcat：
@@ -142,6 +172,56 @@ adb logcat -s FuckBiliAds
 ```text
 10-26 19:40:12.331 [I] [MARK] source=share activity=com.bilibili.video.story.StoryVideoActivity rv=androidx.recyclerview.widget.RecyclerView adapter=com.bilibili.video.story.L children=3 pos=6 visible=1080x2300 item=com.bilibili.video.story.StoryDetail aid=0 cid=0 adType=-1 adInfo=... feedIsAd=true creativeId=3995855299
 ```
+
+## 更新检查
+
+模块会读取本仓库的 GitHub Release 列表（正式版与 pre-release 在同一个接口里），冷启动约 12 秒后
+自动查询一次，6 小时内不重复；命中更新时：
+
+- 弹窗「发现新版本 1.0.9」：显示渠道（正式版 / 测试版）、发布时间与更新说明节选，
+  **前往下载** 直接打开该版本的 Release 页面，另有「稍后」「忽略此版本」；
+- 设置页「更新」分组常驻高亮横幅 + **前往下载** 按钮，顶栏版本号变成 `· 可更新`，点开即是同一个弹窗；
+- 「立即检查更新」可随时手动查询（绕过 6 小时冷却），结果用 Toast / 弹窗给出；
+- 只在主进程执行，断网或请求失败只写日志不打扰（手动检查会把原因显示出来）。
+
+比较规则：
+
+1. 先比版本号数字，`v1.0.9-pre` 视作 `1.0.9`，更高即更新；
+2. 版本号相同时比 `versionCode`：CI 会把 `versionCode: N` 追加到 release 说明末尾，
+   所以 `1.0.9-pre`（44）在 `1.0.9`（45）正式发版后能正确提示更新；
+3. 两者都拿不到时只剩「测试版 → 正式版」这一种可判定变化，其余一律不提示，
+   避免把同一个版本的自编译包误报成新版本。
+
+设置页「更新」分组：
+
+| 项 | 说明 |
+|---|---|
+| 启动时自动检查 | 默认开；关闭后只有手动检查会联网 |
+| 包含测试版 | 默认开；关掉后只匹配正式版 release |
+| 当前版本 / 最新版本 | 本地 `versionName (versionCode)` / 最近一次查询到的版本与发布时间 |
+| 立即检查更新 | 手动查询，结果直接以弹窗提示 |
+| 打开 Release 页面 | 浏览器打开 `github.com/feSHt377/FuckBiliAds/releases` |
+
+查询过程会写进日志，排查时抓 `[UPDATE]` 前缀即可：
+
+```bash
+adb logcat -s FuckBiliAds
+# [UPDATE] checking feSHt377/FuckBiliAds
+# [UPDATE] newest=v1.0.9-pre pre=true local=1.0.8(40) update=true
+```
+
+## 1.1.0 变更
+
+- **启动页配色可选**：设置页新增「启动页配色」——跟随系统 / 浅色 / 深色。只替换窗口背景的纯色层，logo 位置与尺寸不变；深色下不再出现白闪。
+- **品牌开屏直接隐藏**：`22娘/33娘` 立绘来自本地 `BrandSplashStorage`，不走 `/x/v2/splash/*`，因此在 Fragment 视图阶段直接 `GONE`；宿主的计时与跳转不受影响。
+- **剔除广告有提示**：每次从播放列表剔除广告卡都弹「已剔除 N 条广告！FUCK BILI ADS！」，同时写日志 `[FILTER] 剔除 N 条（来源），累计 M`；可在设置里单独关闭。
+- **启动性能（本版重点）**：
+  - 非主进程不再安装 hook、不再扫 dex（之前 main / `:download` / `:web` 各扫一遍 268 MB）；
+  - 缓存 key 改为「模块 versionCode + 宿主 APK 指纹」，去掉 LSPosed 下永远不成立的 `currentModuleTime != 0`（之前**每次**启动都全量重扫）；
+  - 缓存改为原子写（临时文件 + rename），避免多进程并发写坏；
+  - 首次启动（缓存缺失）时把扫描放到后台线程，不阻塞 `handleLoadPackage`，扫完再补装依赖 DexKit 的 hook；
+  - `Gson.fromJson` 的调试字符串改成只在命中开屏响应时才构造。
+- 版本号 `1.1.0`（versionCode 13）。
 
 ## 1.0.9 变更（测试版）
 
@@ -194,6 +274,8 @@ export KEY_PASSWORD=...
 
 - 推送 `v*` 标签即触发 [`.github/workflows/release.yml`](.github/workflows/release.yml)：
   构建 → 签名 → 校验签名 → 上传 APK 并创建 Release；
+- tag 带 `-pre` 后缀（如 `v1.0.9-pre`）时发布为 pre-release，标题追加「· 测试版」，且不同步到模块仓库；
+- release 说明末尾会自动追加 `versionCode: N`，应用内更新检查靠这一行区分**同版本号**的 pre 与正式版；
 - 也可在 Actions 页面手动 `workflow_dispatch`，只产出构建工件。
 
 仓库需要的 Actions Secrets（已由 `gh secret set` 配置）：
@@ -229,8 +311,9 @@ export KEY_PASSWORD=...
 ```text
 app/src/main/java/com/fuck/bili/ads/
 ├── MainHook.java            # 入口，按功能分派 Hook
-├── story/                   # 小视频广告自动跳过
+├── story/                   # 小视频广告自动跳过与剔除
 │   ├── StoryAdSniper.java   # 生命周期 + 可见条目轮询 + 判定
+│   ├── StoryAdFilter.java   # 播放列表入口剔除广告卡 + 剔除提示
 │   ├── StoryView.java       # RecyclerView / 条目 / 字段读取
 │   ├── StoryNext.java       # 下一条执行器
 │   ├── StoryDebug.java      # 页面快照 / 手动标记
@@ -240,6 +323,7 @@ app/src/main/java/com/fuck/bili/ads/
 │   ├── FbaPrefs.java        # 开关存储
 │   ├── FbaLog.java          # 事件日志（文件 + logcat）
 │   ├── MineServiceEntry.java# 「我的 → 更多服务」入口 + BLRouter 拦截
+│   ├── UpdateChecker.java   # GitHub Release 查询 / 版本比较 / 更新弹窗
 │   └── StoryShareMark.java  # 分享面板「标记广告」按钮
 ├── chronos/                 # 弹幕跳转
 ├── settings/                # 关注页过滤设置

@@ -149,29 +149,30 @@ public class GlobalAdSniperEngine {
             java.util.Set<XC_MethodHook.Unhook> hooks = XposedBridge.hookAllMethods(
                     gsonClass, "fromJson", new XC_MethodHook() {
                         @Override protected void afterHookedMethod(MethodHookParam param) {
-                            gsonCalls.incrementAndGet();
+                            // 启动期 fromJson 调用量很大：先做一次零分配的判断，
+                            // 只有命中开屏响应才继续，调试字符串也只在 IS_TESTING 下拼。
                             Object result = param.getResult();
-                            String target = param.args != null && param.args.length >= 2
-                                    ? String.valueOf(param.args[1]) : "<unknown>";
                             String actual = result == null ? "null" : result.getClass().getName();
-                            String input = param.args != null && param.args.length > 0 && param.args[0] != null
-                                    ? param.args[0].getClass().getName() : "null";
+                            boolean splash = actual.contains("SplashListResponse");
                             if (IS_TESTING) {
+                                gsonCalls.incrementAndGet();
+                                String target = param.args != null && param.args.length >= 2
+                                        ? String.valueOf(param.args[1]) : "<unknown>";
+                                String input = param.args != null && param.args.length > 0 && param.args[0] != null
+                                        ? param.args[0].getClass().getName() : "null";
                                 synchronized (recentGson) {
                                     if (recentGson.size() == 40) recentGson.removeFirst();
                                     recentGson.addLast("thread=" + Thread.currentThread().getName()
                                             + ", input=" + input + ", target=" + target
                                             + ", result=" + actual + ", error=" + param.hasThrowable());
                                 }
+                                if (splash) Log.d(TAG, "[SplashParse] input=" + input
+                                        + ", target=" + target + ", result=" + actual
+                                        + ", overload=" + param.method);
                             }
                             // 不读取 Reader/JsonReader，也不消费响应流。所有 fromJson 重载统一处理结果。
-                            if (!target.contains("SplashListResponse")
-                                    && !actual.contains("SplashListResponse")) return;
+                            if (!splash || param.hasThrowable() || result == null) return;
                             splashMatches.incrementAndGet();
-                            if (IS_TESTING) Log.d(TAG, "[SplashParse] input=" + input
-                                    + ", target=" + target + ", result=" + actual
-                                    + ", overload=" + param.method);
-                            if (param.hasThrowable() || result == null) return;
                             try {
                                 int count = clearSplashList(result);
                                 if (count > 0) {

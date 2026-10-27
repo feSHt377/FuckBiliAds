@@ -128,6 +128,11 @@ jobs:
           files: FuckBiliAds-${{ steps.ver.outputs.name }}.apk
           name: FuckBiliAds v${{ steps.ver.outputs.name }}${{ steps.ver.outputs.prerelease == 'true' && ' · 测试版' || '' }}
           generate_release_notes: true
+          # The in-app update checker reads this line to tell 1.0.9-pre (44)
+          # apart from 1.0.9 final (45); keep the format "versionCode: N".
+          append_body: |
+            ---
+            versionCode: ${{ steps.ver.outputs.code }}
           prerelease: ${{ steps.ver.outputs.prerelease == 'true' }}
           fail_on_unmatched_files: true
 
