@@ -1,0 +1,43 @@
+﻿# 最终构建真机冒烟（1.2.0 Debug / LSPosed 2.2.1 / Android 15 / 9.16.1）
+
+RUN 1 pid=6626
+  BOOT: 10-27 17:24:44.671  6626  6626 D FuckBiliAds: [BOOT] hooks done: 剔除✓ 小视频✓ 设置入口✓ 分享标记✓, registered=105
+  REG: 10-27 17:24:45.687  6626  6626 D FuckBiliAds: [HOOK REGISTRY] written /data/user/0/tv.danmaku.bili/cache/fuckbiliads/current-hooks.txt, handles=105, unique=92
+  CRASH: none
+
+RUN 2 pid=9962
+  BOOT: 10-27 17:25:00.831  9962  9962 D FuckBiliAds: [BOOT] hooks done: 剔除✓ 小视频✓ 设置入口✓ 分享标记✓, registered=105
+  REG: 10-27 17:25:01.557  9962  9962 D FuckBiliAds: [HOOK REGISTRY] written /data/user/0/tv.danmaku.bili/cache/fuckbiliads/current-hooks.txt, handles=105, unique=92
+  CRASH: none
+
+RUN 3 pid=12605
+  BOOT: 10-27 17:25:16.902 12605 12605 D FuckBiliAds: [BOOT] hooks done: 剔除✓ 小视频✓ 设置入口✓ 分享标记✓, registered=105
+  REG: 10-27 17:25:17.632 12605 12605 D FuckBiliAds: [HOOK REGISTRY] written /data/user/0/tv.danmaku.bili/cache/fuckbiliads/current-hooks.txt, handles=105, unique=92
+  CRASH: none
+
+# Release 模式冒烟（FuckBiliAds-1.2.0-test.apk，debug key 临时签名）
+
+RUN 1 pid=16542
+  BOOT: 10-27 17:26:19.778 16542 16542 D FuckBiliAds: [BOOT] hooks done: 剔除✓ 小视频✓ 设置入口✓ 分享标记✓, registered=98
+  REG: 10-27 17:26:20.750 16542 16542 D FuckBiliAds: [HOOK REGISTRY] written /data/user/0/tv.danmaku.bili/cache/fuckbiliads/current-hooks.txt, handles=98, unique=91
+  SNIFFER: disabled (release)
+  CRASH: none
+
+RUN 2 pid=18548
+  BOOT: 10-27 17:26:36.117 18548 18548 D FuckBiliAds: [BOOT] hooks done: 剔除✓ 小视频✓ 设置入口✓ 分享标记✓, registered=98
+  REG: 10-27 17:26:37.082 18548 18548 D FuckBiliAds: [HOOK REGISTRY] written /data/user/0/tv.danmaku.bili/cache/fuckbiliads/current-hooks.txt, handles=98, unique=91
+  SNIFFER: disabled (release)
+  CRASH: none
+
+# Release 最终冒烟（cm_v2 复合 viewType 修复后）
+
+RUN 1 pid=24315
+  BOOT: 10-27 17:29:34.284 24315 24315 D FuckBiliAds: [BOOT] hooks done: 剔除✓ 小视频✓ 设置入口✓ 分享标记✓, registered=99
+  REG: 10-27 17:29:35.118 24315 24315 D FuckBiliAds: [HOOK REGISTRY] written /data/user/0/tv.danmaku.bili/cache/fuckbiliads/current-hooks.txt, handles=99, unique=92
+  CRASH: none
+
+RUN 2 pid=26374
+  BOOT: 10-27 17:29:50.350 26374 26374 D FuckBiliAds: [BOOT] hooks done: 剔除✓ 小视频✓ 设置入口✓ 分享标记✓, registered=99
+  REG: 10-27 17:29:51.163 26374 26374 D FuckBiliAds: [HOOK REGISTRY] written /data/user/0/tv.danmaku.bili/cache/fuckbiliads/current-hooks.txt, handles=99, unique=92
+  CRASH: none
+

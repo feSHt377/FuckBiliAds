@@ -6,11 +6,11 @@
 
 **哔哩哔哩 Xposed 去广告模块 · 小视频广告自动跳过**
 
-![version](https://img.shields.io/badge/version-1.1.2-ff2d55)
+![version](https://img.shields.io/badge/version-1.2.0-ff2d55)
 [![xposed repo](https://img.shields.io/badge/Xposed%20Repo-listed-00aeec)](https://modules.lsposed.org/module/io.github.fesht377.biliads/)
 ![host](https://img.shields.io/badge/host-9.16.1%20tested-00aeec)
 ![platform](https://img.shields.io/badge/platform-Android%208.0%2B-3ddc84)
-![framework](https://img.shields.io/badge/LSPosed%20%2F%20LSPatch-API%2082%2B-3ddc84)
+![framework](https://img.shields.io/badge/LSPosed%20%2F%20LSPatch-API%20102-3ddc84)
 
 </div>
 
@@ -88,7 +88,7 @@
 > 两者是不同的应用，从 1.0.6 及更早版本升级时请先卸载旧版、再装新版，否则会同时存在两个模块；
 > 卸载旧版不会影响哔哩哔哩里的设置开关（开关存在宿主侧）。
 
-要求：Android 8.0+（minSdk 26），Xposed API 82+（LSPosed 与 LSPatch 均可）。
+要求：Android 8.0+（minSdk 26），**Xposed API 102**（LSPosed 2.2.1+；低于 API 102 的框架请留在 1.1.2）。
 
 ## 兼容性
 
@@ -110,7 +110,7 @@
 | 项 | 要求 / 实测 |
 |---|---|
 | Android | 8.0+（minSdk 26），targetSdk 36；实测 Android 15（SDK 35） |
-| 框架 | Xposed API 82+；实测 **LSPosed 2.2.1（API 102）** 与 **LSPatch 1.2（API 102）** 均正常 |
+| 框架 | **Xposed API 102**；实测 **LSPosed 2.2.1（API 102）**。1.2.0 起不再使用 legacy API 82，低于 102 的框架请留在 1.1.2 |
 | 架构 | 实测 arm64-v8a；模块无 native 依赖，armeabi-v7a / x86_64 理论上同样可用 |
 | 安装形态 | Root + LSPosed；或无 Root 用 LSPatch 把模块补进宿主 |
 | 模块包名 | `io.github.fesht377.biliads`（1.0.7 起；旧版 `com.fuck.bili.ads` 不再更新） |
@@ -153,7 +153,7 @@ adb logcat -s FuckBiliAds
 
 | 分组 | 内容 |
 |---|---|
-| 功能 | 小视频广告自动跳过、彻底剔除广告（实验）、跳过时提示、剔除时提示、分享面板标记入口、启动页配色 |
+| 功能 | 小视频广告自动跳过、彻底剔除广告（实验）、跳过时提示、剔除时提示、剔除提示附带位置（默认关）、分享面板标记入口、启动页配色 |
 | 调试 | 标记当前条目、复制页面诊断、详细日志、测试宿主 Toast |
 | 诊断 | 模块状态、小视频最近扫描、日志落盘状态、播报模块状态 |
 | 日志 | 查看最近日志、导出日志（分享文本 + 保存到 Download）、清空日志 |
@@ -209,63 +209,15 @@ adb logcat -s FuckBiliAds
 # [UPDATE] newest=v1.0.9-pre pre=true local=1.0.8(40) update=true
 ```
 
-## 1.1.2 变更（测试版）
+## 更新日志
 
-- **修复 8.92.1 上的偶发闪退**：`BiliGsonLobotomy` 原来命中广告卡片后会遍历模型字段，把 `AdInfo` 置空、把含 `ad`/`cm` 的字符串改成 `"unknown"`——这些是宿主正在渲染的同一份实例，宿主随后再做非空判断或解析就会崩（日志里两次「物理摧毁」之后都紧跟着进程重启）。现在**只改返回值，不再改动宿主对象**。
-  - 代价：以前靠清空字段让宿主彻底认不出广告卡，现在只改标识，个别版本的 Feed 广告可能重新出现；如需更强拦截可按宿主版本分级，只在 ≥ 9.0 上做字段清理。
-- **品牌开屏改为可选项**：新增开关「跳过品牌开屏」，**默认关闭**——默认保留宿主自己的个性化开屏动画，需要隐藏时在设置里打开。
-- 版本号 `1.1.2`（versionCode 10102）。
+完整历史见 [GitHub Releases](https://github.com/feSHt377/FuckBiliAds/releases)；这里只留当前版本要点。
 
-## 1.1.1 变更（测试版）
+**1.2.0**
 
-- **移除「弹幕引擎替换 / 弹幕跳转」**：上线前遗留的旧功能——把宿主的 Chronos 弹幕包换成模块内置的 `3.12.0` 并给引擎 JS 打补丁，1.0.3 之后再没维护过（1.0.7 只跟着改了包名常量，`isDebugBuild` 里还留着旧 ApplicationID `com.fuck.bili.ads`）。本次整体删除：`chronos/` 三个类、根包里同名的死代码 `DanmuScriptPatcher`、`assets/danmu/`（含 1.08 MB 引擎包），以及关注页设置里的「弹幕引擎 / 恢复原版」按钮；APK 体积因此减少约 1.03 MiB。
-- **「弹幕发送者查询」暂时失效**：`DanmuSenderLookup.cacheClientDanmaku()` 原本由被删掉的弹幕跳转喂数据（`dmid → hash`），现在没有 hash 来源，点「复制」只会停在日志 `客户端缓存尚未找到 dmid`。代码按「保留待重接」处理——`DanmuSenderLookup` 与 `GLOBAL_DANMAKU_DICT` 未删，后续用宿主侧 hook 直接抓 `DmSegMobileReply` 的 `dmid/hash` 即可恢复。
-- **CI 的 versionCode 改为语义版本**：`major*10000 + minor*100 + patch`（`1.1.1 → 10101`）。之前取 `github.run_number`，会小于本地构建的 versionCode，导致「新包装不上、更新检查反过来认为是旧版」。
-- 版本号 `1.1.1`（versionCode 10101）。
-
-## 1.1.0 变更
-
-- **启动页配色可选**：设置页新增「启动页配色」——跟随系统 / 浅色 / 深色。只替换窗口背景的纯色层，logo 位置与尺寸不变；深色下不再出现白闪。
-- **品牌开屏直接隐藏**：`22娘/33娘` 立绘来自本地 `BrandSplashStorage`，不走 `/x/v2/splash/*`，因此在 Fragment 视图阶段直接 `GONE`；宿主的计时与跳转不受影响。
-- **剔除广告有提示**：每次从播放列表剔除广告卡都弹「已剔除 N 条广告！FUCK BILI ADS！」，同时写日志 `[FILTER] 剔除 N 条（来源），累计 M`；可在设置里单独关闭。
-- **启动性能（本版重点）**：
-  - 非主进程不再安装 hook、不再扫 dex（之前 main / `:download` / `:web` 各扫一遍 268 MB）；
-  - 缓存 key 改为「模块 versionCode + 宿主 APK 指纹」，去掉 LSPosed 下永远不成立的 `currentModuleTime != 0`（之前**每次**启动都全量重扫）；
-  - 缓存改为原子写（临时文件 + rename），避免多进程并发写坏；
-  - 首次启动（缓存缺失）时把扫描放到后台线程，不阻塞 `handleLoadPackage`，扫完再补装依赖 DexKit 的 hook；
-  - `Gson.fromJson` 的调试字符串改成只在命中开屏响应时才构造。
-- 版本号 `1.1.0`。
-
-## 1.0.9 变更（测试版）
-
-- **新增「彻底剔除广告（实验）」**：宿主的播放列表只在三个时机刷新——首屏、加载下一页、回滑补数据，三者都经过 `StoryPagerPlayer` 的批次方法。现在在 `T0(List)` / `t1(List)`（实例）与 `V1(player, List, …)`（静态，整表替换）的**入口**把广告卡从参数列表里摘掉，宿主后续的 size 运算、当前索引、播放器切片、曝光上报都只看得到真实视频。
-- **存量清理**：钩子安装前已经进列表的广告卡（通常是首批），通过宿主自己的 `StoryPagerPlayer.remove(int)` 移除——它对广告卡有专用分支，会同步播放器与索引；我们从不直接改 adapter 列表。
-- **多重兜底**：整批都是广告时保留原列表（否则列表会空、翻不动）；类或方法签名变了就整体退回原来的滚动跳过；开关可随时在设置页关闭。
-- 诊断面板新增「广告剔除」一行：入口是否启用 + 本会话剔除/清理条数。
-- **本版为 pre-release**：只用于测试，不打正式标签、不同步到 Xposed 模块仓库。
-
-## 1.0.8 变更
-
-- 上架 [Xposed 模块仓库](https://modules.lsposed.org/)，首个模块仓库 release 由 CI 自动同步（tag 形如 `9-1.0.8`，versionCode 取自 CI run number）；
-- 仓库内 `SUMMARY` / `README.md`（上架版）已推送，包名保持 `io.github.fesht377.biliads`，功能与 1.0.7 一致。
-
-## 1.0.7 变更（包名切换）
-
-- **ApplicationID 改为 `io.github.fesht377.biliads`**：Xposed 模块仓库要求包名是自有域名反写或 `io.github.{用户名}`，原 `com.fuck.bili.ads` 无法通过审核。Java 包名保持 `com.fuck.bili.ads` 不变，只改 ApplicationID，因此代码与 Hook 无改动。
-- **`xposedminversion` 从 54 提到 82**，与编译所用的 Xposed API 保持一致，避免旧框架按 54 加载后崩溃。
-- 设置页「模块版本」改为读模块自己的 `BuildConfig`，不再依赖硬编码包名。
-- 模块同步发布到 [Xposed 模块仓库](https://modules.lsposed.org/)。
-
-## 1.0.4 ~ 1.0.6 变更（9.16.1 适配）
-
-- **启动播报**：进入 B 站后用 Toast 显示 `已加载 · 小视频✓ 入口✓ 分享✓`，加载失败或部分失败会带 ✗；设置页「诊断 → 播报模块状态」可随时重播。
-- **按结构匹配，不认混淆名**：9.16 把分享控制器从 `r0` 换成 `k0`、列表适配器从 `L` 换成 `X`。现在分享入口锚在 `StoryActionHelper` 的 `(StoryDetail, StoryShareFrom) -> String` 方法签名上，列表则按「适配器里是否有 `adInfo`+`adType` 的条目对象」来选，不再依赖类名。
-- **入口不再消失**：服务端静默刷新会重建 `MenuGroup`，入口改为在适配器每次 bind 前补齐，并保留 10 秒重试窗口。
-- **日志补齐**：内存环形缓冲 + 文件双写，设置页同时展示「本次运行」和「历史日志」；每个功能的 Hook 安装结果单独记录，单个失败不会中断其它功能。
-- **小视频看门狗**：每 2 秒检查前台 Activity，即使生命周期 Hook 在 LSPatch 上不生效，进入小视频页也会自动开始检测。
-- **诊断可见**：设置页「诊断」分组显示模块各功能状态、小视频最近一次扫描（rv/适配器/pos/条目/adInfo）。
-- **1.0.5**：分享面板若为独立对话框窗口，「标记广告」按钮只跟随窗口 6 秒，关闭面板后不会残留在页面上。
-- **1.0.6**：9.16 的我的页把宫格项交给 `MinePageManager` 处理、**不再走 BLRouter**，未知 uri 点击无反应；改为在条目 ViewHolder 的 `onClick` 上按 `uri` 拦截，点击直接打开设置页。
+- 全量迁移到 **libxposed API 102**（`XposedModule` + `hook(...).intercept(...)`），不再使用 legacy API 82；低于 API 102 的框架请继续用 1.1.2。
+- 新增「剔除提示附带位置」（默认关闭）：开启后提示形如 `已剔除 1 条广告（后3条）！FUCK BILI ADS！`。
+- 修复 `cm_v2:3` 被改写导致宿主 `type:unknown is not exist` 崩溃；小视频会话只对 Story 页面启动。
 
 ## 构建
 
@@ -325,7 +277,12 @@ export KEY_PASSWORD=...
 
 ```text
 app/src/main/java/com/fuck/bili/ads/
-├── MainHook.java            # 入口，按功能分派 Hook
+├── MainHook.java            # 入口（XposedModule#onPackageLoaded），按功能分派 Hook
+├── core/                    # modern API 基础设施
+│   ├── Reflect.java         # 反射匹配 / 装箱 / 父类接口查找
+│   ├── NativeHooks.java     # Hook 注册与异常模式
+│   ├── HookRegistry.java    # 句柄对账与落盘
+│   └── Host.java            # Application / processName
 ├── story/                   # 小视频广告自动跳过与剔除
 │   ├── StoryAdSniper.java   # 生命周期 + 可见条目轮询 + 判定
 │   ├── StoryAdFilter.java   # 播放列表入口剔除广告卡 + 剔除提示
