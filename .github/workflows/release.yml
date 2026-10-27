@@ -137,42 +137,7 @@ jobs:
           prerelease: ${{ steps.ver.outputs.prerelease == 'true' }}
           fail_on_unmatched_files: true
 
-      # softprops/action-gh-release 的 append_body 只在「更新已有 release」时生效，
-      # 新建 release 时会被 generate_release_notes 的结果覆盖，于是正文里从来没有
-      # 「versionCode: N」。应用内更新检查（UpdateChecker.parseVersionCode）依赖这行
-      # 判断同名版本的新旧（1.2.0-pre 44 vs 1.2.0 45），这里显式补一次 PATCH。
-      - name: Append versionCode to release body
-        if: github.ref_type == 'tag'
-        shell: bash
-        env:
-          GH_TOKEN: ${{ github.token }}
-          TAG: ${{ github.ref_name }}
-          CODE: ${{ steps.ver.outputs.code }}
-        run: |
-          set -euo pipefail
-          notes="$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/$TAG" -q .body || true)"
-          tag_notes="$(git tag -l --format='%(contents)' "$TAG" | sed -e 's/[[:space:]]*$//')"
-          body="$tag_notes"
-          if [ -n "$notes" ] && [ "$notes" != "$tag_notes" ]; then
-            if [ -n "$body" ]; then
-              body="$(printf '%s\n\n%s' "$body" "$notes")"
-            else
-              body="$notes"
-            fi
-          fi
-          # 幂等：重复运行只更新数字，不会叠加多行。
-          if printf '%s\n' "$body" | grep -q '^versionCode:'; then
-            body="$(printf '%s\n' "$body" | sed -E "s/^versionCode:.*/versionCode: ${CODE}/")"
-          elif [ -n "$body" ]; then
-            body="$(printf '%s\n\n---\nversionCode: %s' "$body" "$CODE")"
-          else
-            body="versionCode: ${CODE}"
-          fi
-          printf '%s\n' "$body" > "$RUNNER_TEMP/release-notes.md"
-          gh api -X PATCH "repos/$GITHUB_REPOSITORY/releases/tags/$TAG" \
-            -F body=@"$RUNNER_TEMP/release-notes.md" > /dev/null
-          echo "release body now carries versionCode: ${CODE}"
-
+      # 先同步到模块仓库（用户下载入口），再做正文修补，避免正文步骤失败拖累分发。
       - name: Sync to Xposed module repository
         if: github.ref_type == 'tag' && steps.ver.outputs.prerelease != 'true'
         shell: bash
@@ -180,6 +145,7 @@ jobs:
           MODULE_REPO_TOKEN: ${{ secrets.MODULE_REPO_TOKEN }}
           VERSION_NAME: ${{ steps.ver.outputs.name }}
           VERSION_CODE: ${{ steps.ver.outputs.code }}
+          TAG_NAME: ${{ github.ref_name }}
         run: |
           set -euo pipefail
           if [ -z "${MODULE_REPO_TOKEN:-}" ]; then
@@ -194,8 +160,56 @@ jobs:
             echo "release $tag 已存在，覆盖 asset"
             gh release upload "$tag" "$apk" --repo "$repo" --clobber
           else
-            notes="$(git log -1 --pretty=%B)"
+            notes="$(git tag -l --format='%(contents)' "$TAG_NAME" 2>/dev/null || true)"
+            [ -n "$notes" ] || notes="$(git log -1 --pretty=%B)"
             gh release create "$tag" "$apk" --repo "$repo" \
               --title "$VERSION_NAME" --notes "${notes:-FuckBiliAds $VERSION_NAME}"
           fi
           echo "已同步到 $repo $tag"
+
+      # softprops/action-gh-release 的 append_body 只在「更新已有 release」时生效，
+      # 新建 release 时会被 generate_release_notes 的结果覆盖，于是正文里从来没有
+      # 「versionCode: N」。应用内更新检查（UpdateChecker.parseVersionCode）依赖这行
+      # 判断同名版本的新旧（1.2.0-pre 44 vs 1.2.0 45），这里显式补一次 PATCH。
+      - name: Append versionCode to release body
+        if: github.ref_type == 'tag'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+          CODE: ${{ steps.ver.outputs.code }}
+        run: |
+          set -euo pipefail
+          # 注意：releases/tags/{tag} 只支持 GET，PATCH 必须走 releases/{id}。
+          release_id="$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/$TAG" -q .id)"
+          if [ -z "$release_id" ]; then
+            echo "::error::cannot resolve release id for $TAG"
+            exit 1
+          fi
+          notes="$(gh api "repos/$GITHUB_REPOSITORY/releases/$release_id" -q .body)"
+          tag_notes="$(git tag -l --format='%(contents)' "$TAG" | sed -e 's/[[:space:]]*$//')"
+          # 幂等：正文已经以 tag 注释开头，说明上次已经拼过，直接沿用。
+          case "$notes" in
+            "$tag_notes"*) body="$notes" ;;
+            *)
+              if [ -n "$tag_notes" ] && [ -n "$notes" ]; then
+                body="$(printf '%s\n\n%s' "$tag_notes" "$notes")"
+              elif [ -n "$tag_notes" ]; then
+                body="$tag_notes"
+              else
+                body="$notes"
+              fi
+              ;;
+          esac
+          # 幂等：重复运行只刷新数字，不会叠加多行。
+          if printf '%s\n' "$body" | grep -q '^versionCode:'; then
+            body="$(printf '%s\n' "$body" | sed -E "s/^versionCode:.*/versionCode: ${CODE}/")"
+          elif [ -n "$body" ]; then
+            body="$(printf '%s\n\n---\nversionCode: %s' "$body" "$CODE")"
+          else
+            body="versionCode: ${CODE}"
+          fi
+          printf '%s\n' "$body" > "$RUNNER_TEMP/release-notes.md"
+          gh api -X PATCH "repos/$GITHUB_REPOSITORY/releases/$release_id" \
+            -F body=@"$RUNNER_TEMP/release-notes.md" > /dev/null
+          echo "release body now carries versionCode: ${CODE}"
