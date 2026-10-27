@@ -6,7 +6,7 @@
 
 **哔哩哔哩 Xposed 去广告模块 · 小视频广告自动跳过**
 
-![version](https://img.shields.io/badge/version-1.1.0-ff2d55)
+![version](https://img.shields.io/badge/version-1.1.1-ff2d55)
 [![xposed repo](https://img.shields.io/badge/Xposed%20Repo-listed-00aeec)](https://modules.lsposed.org/module/io.github.fesht377.biliads/)
 ![host](https://img.shields.io/badge/host-9.16.1%20tested-00aeec)
 ![platform](https://img.shields.io/badge/platform-Android%208.0%2B-3ddc84)
@@ -56,7 +56,7 @@
 | 功能 | 说明 |
 |---|---|
 | 播放页广告 | 播放器下方推广位、暂停页广告 |
-| 弹幕发送者查询 | 点击弹幕「复制」直接跳到发送者主页 |
+| 弹幕发送者查询 | ⚠️ 暂不可用：hash 来源（原弹幕跳转）已移除，待重接 |
 
 ### 小视频（重点）
 
@@ -209,6 +209,13 @@ adb logcat -s FuckBiliAds
 # [UPDATE] newest=v1.0.9-pre pre=true local=1.0.8(40) update=true
 ```
 
+## 1.1.1 变更（测试版）
+
+- **移除「弹幕引擎替换 / 弹幕跳转」**：上线前遗留的旧功能——把宿主的 Chronos 弹幕包换成模块内置的 `3.12.0` 并给引擎 JS 打补丁，1.0.3 之后再没维护过（1.0.7 只跟着改了包名常量，`isDebugBuild` 里还留着旧 ApplicationID `com.fuck.bili.ads`）。本次整体删除：`chronos/` 三个类、根包里同名的死代码 `DanmuScriptPatcher`、`assets/danmu/`（含 1.08 MB 引擎包），以及关注页设置里的「弹幕引擎 / 恢复原版」按钮；APK 体积因此减少约 1.03 MiB。
+- **「弹幕发送者查询」暂时失效**：`DanmuSenderLookup.cacheClientDanmaku()` 原本由被删掉的弹幕跳转喂数据（`dmid → hash`），现在没有 hash 来源，点「复制」只会停在日志 `客户端缓存尚未找到 dmid`。代码按「保留待重接」处理——`DanmuSenderLookup` 与 `GLOBAL_DANMAKU_DICT` 未删，后续用宿主侧 hook 直接抓 `DmSegMobileReply` 的 `dmid/hash` 即可恢复。
+- **CI 的 versionCode 改为语义版本**：`major*10000 + minor*100 + patch`（`1.1.1 → 10101`）。之前取 `github.run_number`，会小于本地构建的 versionCode，导致「新包装不上、更新检查反过来认为是旧版」。
+- 版本号 `1.1.1`（versionCode 10101）。
+
 ## 1.1.0 变更
 
 - **启动页配色可选**：设置页新增「启动页配色」——跟随系统 / 浅色 / 深色。只替换窗口背景的纯色层，logo 位置与尺寸不变；深色下不再出现白闪。
@@ -220,8 +227,7 @@ adb logcat -s FuckBiliAds
   - 缓存改为原子写（临时文件 + rename），避免多进程并发写坏；
   - 首次启动（缓存缺失）时把扫描放到后台线程，不阻塞 `handleLoadPackage`，扫完再补装依赖 DexKit 的 hook；
   - `Gson.fromJson` 的调试字符串改成只在命中开屏响应时才构造。
-- **移除「弹幕引擎替换 / 弹幕跳转」**：上线前遗留的旧功能——把宿主的 Chronos 弹幕包换成模块内置的 `3.12.0` 并给引擎 JS 打补丁，1.0.3 之后再没维护过（1.0.7 只跟着改了包名常量，`isDebugBuild` 里还留着旧 ApplicationID `com.fuck.bili.ads`）。本次整体删除：`chronos/` 三个类、根包里同名的死代码 `DanmuScriptPatcher`、`assets/danmu/`（含 1.08 MB 引擎包），以及关注页设置里的「弹幕引擎 / 恢复原版」按钮；APK 体积因此减少约 1.03 MiB。
-- 版本号 `1.1.0`（versionCode 13）。
+- 版本号 `1.1.0`。
 
 ## 1.0.9 变更（测试版）
 
@@ -274,7 +280,9 @@ export KEY_PASSWORD=...
 
 - 推送 `v*` 标签即触发 [`.github/workflows/release.yml`](.github/workflows/release.yml)：
   构建 → 签名 → 校验签名 → 上传 APK 并创建 Release；
-- tag 带 `-pre` 后缀（如 `v1.0.9-pre`）时发布为 pre-release，标题追加「· 测试版」，且不同步到模块仓库；
+- tag 带 `-pre` 后缀（如 `v1.1.1-pre`）时发布为 pre-release，标题追加「· 测试版」，且不同步到模块仓库；
+- versionCode 由 tag 的语义版本算出：`major*10000 + minor*100 + patch`（`v1.1.1-pre` → `10101`），
+  保证 CI 产物一定比历史构建新；本地 `./gradlew` 的默认值也用同一套规则；
 - release 说明末尾会自动追加 `versionCode: N`，应用内更新检查靠这一行区分**同版本号**的 pre 与正式版；
 - 也可在 Actions 页面手动 `workflow_dispatch`，只产出构建工件。
 
