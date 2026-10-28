@@ -108,119 +108,126 @@ public final class FbaSettings {
             root.addView(scroll, new LinearLayout.LayoutParams(
                     ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
 
-            // ---- 功能 ----
-            content.addView(section(context, "功能", subColor));
-            content.addView(switchRow(context, "小视频广告自动跳过",
-                    "命中 adInfo.feedIsAd 时自动翻到下一条",
+            // ---- 小视频 ----
+            content.addView(section(context, "小视频", "自动跳过或从播放列表剔除广告", subColor));
+            content.addView(switchRow(context, "自动跳过广告",
+                    "检测到当前条目为广告时，自动滑动到下一条",
                     FbaPrefs.storySkip(), titleColor, subColor, divider,
                     checked -> FbaPrefs.setStorySkip(checked)));
-            content.addView(switchRow(context, "彻底剔除广告（实验）",
-                    "在列表入口把广告卡摘掉，不再进入播放列表（失败自动退回滑动跳过）",
-                    FbaPrefs.storyFilter(), titleColor, subColor, divider,
-                    checked -> FbaPrefs.setStoryFilter(checked)));
-            content.addView(switchRow(context, "剔除时提示",
-                    "每次剔除广告卡时用 Toast 告知剔除了几条，并写入日志",
-                    FbaPrefs.storyFilterToast(), titleColor, subColor, divider,
-                    checked -> FbaPrefs.setStoryFilterToast(checked)));
-            content.addView(switchRow(context, "剔除提示附带位置",
-                    "在提示后追加（后x条），表示该广告距当前视频的位置；默认关闭",
-                    FbaPrefs.storyFilterOffset(), titleColor, subColor, divider,
-                    checked -> FbaPrefs.setStoryFilterOffset(checked)));
-            content.addView(switchRow(context, "跳过时提示",
-                    "使用 B 站自带的底部 Toast",
+            content.addView(switchRow(context, "跳过时显示提示",
+                    "自动跳过后显示「检测到广告，已跳过」Toast",
                     FbaPrefs.storyToast(), titleColor, subColor, divider,
                     checked -> FbaPrefs.setStoryToast(checked)));
-            content.addView(switchRow(context, "分享面板标记入口",
-                    "在小视频分享面板显示「标记广告」按钮",
+            content.addView(switchRow(context, "从列表剔除广告 · 实验",
+                    "广告不进入播放列表；不可用时仍按上方设置自动跳过",
+                    FbaPrefs.storyFilter(), titleColor, subColor, divider,
+                    checked -> FbaPrefs.setStoryFilter(checked)));
+            content.addView(switchRow(context, "剔除时显示提示",
+                    "剔除广告后通过 Toast 显示本次剔除数量",
+                    FbaPrefs.storyFilterToast(), titleColor, subColor, divider,
+                    checked -> FbaPrefs.setStoryFilterToast(checked)));
+            content.addView(switchRow(context, "提示中显示广告位置",
+                    "在剔除提示后追加「（后 N 条）」；默认关闭",
+                    FbaPrefs.storyFilterOffset(), titleColor, subColor, divider,
+                    checked -> FbaPrefs.setStoryFilterOffset(checked)));
+
+            // ---- 分享与标记 ----
+            content.addView(section(context, "分享与标记", "用于采集小视频广告信息", subColor));
+            content.addView(switchRow(context, "分享面板显示「标记广告」",
+                    "在小视频分享面板添加入口，将当前条目信息写入日志",
                     FbaPrefs.shareMark(), titleColor, subColor, divider,
                     checked -> FbaPrefs.setShareMark(checked)));
+
+            // ---- 启动页 ----
+            content.addView(section(context, "启动页", "开屏外观设置，下次启动生效", subColor));
             content.addView(actionRow(context, "启动页配色",
-                    splashThemeLabel() + " · 点击切换",
+                    splashThemeLabel() + " · 可选择跟随系统、浅色或深色",
                     titleColor, subColor, divider, v -> chooseSplashTheme(context)));
-            content.addView(switchRow(context, "跳过品牌开屏",
-                    "隐藏「22娘/33娘」品牌立绘；默认关闭，保留个性化开屏动画",
+            content.addView(switchRow(context, "隐藏品牌开屏立绘",
+                    "隐藏「22娘/33娘」本地立绘，不影响广告拦截；默认关闭",
                     FbaPrefs.brandSplashBlock(), titleColor, subColor, divider,
                     checked -> FbaPrefs.setBrandSplashBlock(checked)));
 
-            // ---- 调试 ----
-            content.addView(section(context, "调试", subColor));
-            content.addView(actionRow(context, "标记当前小视频条目",
-                    "把当前可见条目的 aid/cid/adInfo 写入日志",
-                    titleColor, subColor, divider, v -> markCurrent(context)));
-            content.addView(actionRow(context, "复制当前页面诊断",
-                    "把页面结构快照复制到剪贴板",
-                    titleColor, subColor, divider, v -> copySnapshot(context)));
-            content.addView(switchRow(context, "详细日志",
-                    "记录每一轮可见条目判定（排查用）",
-                    FbaPrefs.verbose(), titleColor, subColor, divider,
-                    checked -> FbaPrefs.setVerbose(checked)));
-            content.addView(actionRow(context, "测试宿主 Toast",
-                    "验证 ToastHelper 是否可用",
-                    titleColor, subColor, divider, v -> testToast(context)));
-            content.addView(actionRow(context, "测试剔除提示",
-                    FbaPrefs.storyFilterOffset()
-                            ? "按「剔除 3 条（后 3 条）」触发一次 Toast，不改动播放列表"
-                            : "按「剔除 3 条」触发一次 Toast，不改动播放列表",
-                    titleColor, subColor, divider,
-                    v -> StoryAdFilter.debugToast(activityOf(context), 3, 3)));
-
-            // ---- 诊断 ----
-            content.addView(section(context, "诊断", subColor));
-            content.addView(infoRow(context, "模块状态", FbaRuntime.summary(), titleColor, subColor, divider));
-            content.addView(infoRow(context, "小视频扫描", StoryDiag.describe(), titleColor, subColor, divider));
-            content.addView(infoRow(context, "广告剔除", StoryAdFilter.stats(), titleColor, subColor, divider));
-            content.addView(infoRow(context, "日志落盘", FbaLog.fileOk() ? "正常" : ("失败：" + FbaLog.lastError()),
-                    titleColor, subColor, divider));
-            content.addView(actionRow(context, "播报模块状态",
-                    "立即用 Toast 显示各功能安装结果",
-                    titleColor, subColor, divider, v -> FbaRuntime.toastNow("FuckBiliAds · " + FbaRuntime.summary())));
-
-            // ---- 日志 ----
-            content.addView(section(context, "日志", subColor));
-            content.addView(actionRow(context, "查看最近日志",
-                    lineCountHint(context), titleColor, subColor, divider,
-                    v -> showLog(context, night, bg, titleColor, subColor)));
-            content.addView(actionRow(context, "导出日志",
-                    "分享文本或保存到 Download/FuckBiliAds",
-                    titleColor, subColor, divider, v -> exportLog(context)));
-            content.addView(actionRow(context, "清空日志",
-                    "删除 events.log",
-                    titleColor, subColor, divider, v -> confirmClear(context)));
-
             // ---- 更新 ----
-            content.addView(section(context, "更新", subColor));
+            content.addView(section(context, "模块更新", "通过 GitHub Releases 检查新版本", subColor));
             UpdateChecker.Release update = UpdateChecker.available();
             if (update != null) {
                 content.addView(updateBanner(context, update, subColor, divider));
             }
-            content.addView(switchRow(context, "启动时自动检查",
+            content.addView(switchRow(context, "启动时自动检查更新",
                     "冷启动约 12 秒后查询一次，6 小时内不重复",
                     FbaPrefs.updateAuto(), titleColor, subColor, divider,
                     checked -> FbaPrefs.setUpdateAuto(checked)));
-            content.addView(switchRow(context, "包含测试版",
-                    "同时匹配 pre-release（tag 带 -pre 的版本）",
+            content.addView(switchRow(context, "接收测试版更新",
+                    "将 pre-release 纳入更新检查；关闭后只检查正式版",
                     FbaPrefs.updatePrerelease(), titleColor, subColor, divider,
                     checked -> FbaPrefs.setUpdatePrerelease(checked)));
-            content.addView(infoRow(context, "当前版本", UpdateChecker.currentVersion(),
+            content.addView(infoRow(context, "当前安装版本", UpdateChecker.currentVersion(),
                     titleColor, subColor, divider));
-            content.addView(infoRow(context, "最新版本", UpdateChecker.latestLabel(),
+            content.addView(infoRow(context, "最近检查结果", UpdateChecker.latestLabel(),
                     titleColor, subColor, divider));
             content.addView(actionRow(context, "立即检查更新",
                     UpdateChecker.statusHint(), titleColor, subColor, divider,
                     v -> UpdateChecker.check(context, true)));
-            content.addView(actionRow(context, "打开 Release 页面",
-                    UpdateChecker.RELEASES_PAGE.replace("https://", ""),
+            content.addView(actionRow(context, "查看全部版本",
+                    "打开 GitHub Releases 页面",
                     titleColor, subColor, divider,
                     v -> UpdateChecker.openReleasePage(context)));
 
+            // ---- 调试工具 ----
+            content.addView(section(context, "调试工具", "仅在排查问题时使用", subColor));
+            content.addView(actionRow(context, "标记当前小视频条目",
+                    "将当前可见条目的 aid、cid、adInfo 写入日志",
+                    titleColor, subColor, divider, v -> markCurrent(context)));
+            content.addView(actionRow(context, "复制当前页面诊断",
+                    "复制页面结构快照，便于反馈问题",
+                    titleColor, subColor, divider, v -> copySnapshot(context)));
+            content.addView(switchRow(context, "记录详细日志",
+                    "记录每轮可见条目判定，可能增加日志量；默认关闭",
+                    FbaPrefs.verbose(), titleColor, subColor, divider,
+                    checked -> FbaPrefs.setVerbose(checked)));
+            content.addView(actionRow(context, "测试宿主 Toast",
+                    "验证能否使用 B 站自身的 Toast 提示",
+                    titleColor, subColor, divider, v -> testToast(context)));
+            content.addView(actionRow(context, "测试广告剔除提示",
+                    FbaPrefs.storyFilterOffset()
+                            ? "模拟「已剔除 3 条广告（后 3 条）」，不修改播放列表"
+                            : "模拟「已剔除 3 条广告」，不修改播放列表",
+                    titleColor, subColor, divider,
+                    v -> StoryAdFilter.debugToast(activityOf(context), 3, 3)));
+            content.addView(actionRow(context, "播报模块加载状态",
+                    "通过 Toast 显示各项功能的 Hook 安装结果",
+                    titleColor, subColor, divider,
+                    v -> FbaRuntime.toastNow("FuckBiliAds · " + FbaRuntime.summary())));
+
+            // ---- 日志管理 ----
+            content.addView(section(context, "日志管理", "查看、导出或清理模块日志", subColor));
+            content.addView(actionRow(context, "查看最近日志",
+                    lineCountHint(context), titleColor, subColor, divider,
+                    v -> showLog(context, night, bg, titleColor, subColor)));
+            content.addView(actionRow(context, "导出日志",
+                    "分享日志文本，或保存至 Download/FuckBiliAds",
+                    titleColor, subColor, divider, v -> exportLog(context)));
+            content.addView(actionRow(context, "清空日志",
+                    "删除 events.log；此操作不可撤销",
+                    titleColor, subColor, divider, v -> confirmClear(context)));
+
+            // ---- 运行诊断 ----
+            content.addView(section(context, "运行诊断", "本次启动后的模块运行状态", subColor));
+            content.addView(infoRow(context, "Hook 安装状态", FbaRuntime.summary(), titleColor, subColor, divider));
+            content.addView(infoRow(context, "小视频页面扫描", StoryDiag.describe(), titleColor, subColor, divider));
+            content.addView(infoRow(context, "广告剔除统计", StoryAdFilter.stats(), titleColor, subColor, divider));
+            content.addView(infoRow(context, "日志文件状态", FbaLog.fileOk() ? "正常写入" : ("写入失败：" + FbaLog.lastError()),
+                    titleColor, subColor, divider));
+
             // ---- 关于 ----
-            content.addView(section(context, "关于", subColor));
-            content.addView(infoRow(context, "版本", versionName(context), titleColor, subColor, divider));
-            content.addView(infoRow(context, "宿主", hostVersion(context), titleColor, subColor, divider));
+            content.addView(section(context, "关于模块", null, subColor));
+            content.addView(infoRow(context, "模块版本", versionName(context), titleColor, subColor, divider));
+            content.addView(infoRow(context, "宿主版本", hostVersion(context), titleColor, subColor, divider));
             content.addView(infoRow(context, "小视频 Hook", StoryAdSniper.isReady() ? "已就绪" : "未就绪",
                     titleColor, subColor, divider));
             File log = FbaLog.file();
-            content.addView(infoRow(context, "日志文件",
+            content.addView(infoRow(context, "日志保存路径",
                     log == null ? "-" : log.getAbsolutePath(), titleColor, subColor, divider));
 
             dialog.setContentView(root);
@@ -293,13 +300,27 @@ public final class FbaSettings {
         void onChanged(boolean checked);
     }
 
-    private static View section(Context context, String text, int subColor) {
-        TextView tv = new TextView(context);
-        tv.setText(text);
-        tv.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
-        tv.setTextColor(subColor);
-        tv.setPadding(dp(context, 16), dp(context, 20), dp(context, 16), dp(context, 6));
-        return tv;
+    private static View section(Context context, String text, String subtitle, int subColor) {
+        LinearLayout group = new LinearLayout(context);
+        group.setOrientation(LinearLayout.VERTICAL);
+        group.setPadding(dp(context, 16), dp(context, 22), dp(context, 16), dp(context, 6));
+
+        TextView title = new TextView(context);
+        title.setText(text);
+        title.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
+        title.setTypeface(Typeface.DEFAULT_BOLD);
+        title.setTextColor(ACCENT);
+        group.addView(title);
+
+        if (!TextUtils.isEmpty(subtitle)) {
+            TextView description = new TextView(context);
+            description.setText(subtitle);
+            description.setTextSize(TypedValue.COMPLEX_UNIT_SP, 11);
+            description.setTextColor(subColor);
+            description.setPadding(0, dp(context, 2), 0, 0);
+            group.addView(description);
+        }
+        return group;
     }
 
     private static View switchRow(Context context, String title, String subtitle,
