@@ -6,12 +6,18 @@ import android.widget.Space;
 
 import com.fuck.bili.ads.core.NativeHooks;
 import com.fuck.bili.ads.core.Reflect;
+import com.fuck.bili.ads.ui.FbaLog;
 
 import java.lang.reflect.Method;
 
 public class BiliMentionedSniper {
 
     private static final String TAG = "BiliMentionedTracker";
+
+    /** Only the two methods that create/bind the ad component need interception. */
+    static boolean shouldHook(String methodName) {
+        return "createViewEntry".equals(methodName) || "bindToView".equals(methodName);
+    }
 
     public static void hook(ClassLoader classLoader, DexKitHelper helper) {
         try {
@@ -20,46 +26,29 @@ public class BiliMentionedSniper {
             Class<?> unitClass = Reflect.findClass("kotlin.Unit", classLoader);
             Object unitInstance = Reflect.getStaticObjectField(unitClass, "INSTANCE");
 
-            Log.d(TAG, "Target classes resolved. Scanning methods...");
-
+            int hooked = 0;
             for (Method method : targetClass.getDeclaredMethods()) {
-                final String methodName = method.getName();
-
-                if ("createViewEntry".equals(methodName)) {
-                    // Replace all overloads of createViewEntry
+                if (!shouldHook(method.getName())) {
+                    continue;
+                }
+                if ("createViewEntry".equals(method.getName())) {
                     NativeHooks.hook("BiliMentionedSniper.createViewEntry", method, chain -> {
-                        Log.d(TAG, "Intercepted: createViewEntry. Returning Space wrapper.");
                         try {
                             Context context = (Context) chain.getArg(0);
                             Space space = new Space(context);
                             return Reflect.newInstance(componentBClass, space);
                         } catch (Throwable t) {
-                            Log.e(TAG, "Failed inside createViewEntry hook.", t);
-                            return null;
+                            FbaLog.e("视频提及组件替换失败，已保留原组件", t);
+                            return chain.proceed();
                         }
-                    });
-                } else if ("bindToView".equals(methodName)) {
-                    // Replace all overloads (including Object bridge methods) of bindToView
-                    NativeHooks.hook("BiliMentionedSniper.bindToView", method, chain -> {
-                        Log.d(TAG, "Intercepted: bindToView. Blocking execution to prevent ClassCastException.");
-                        return unitInstance;
                     });
                 } else {
-                    // Log all other methods in this class to catch any unexpected lifecycle calls
-                    NativeHooks.hook("BiliMentionedSniper." + methodName, method, chain -> {
-                        Log.d(TAG, "Enter: " + methodName);
-                        try {
-                            Object result = chain.proceed();
-                            Log.d(TAG, "Exit: " + methodName);
-                            return result;
-                        } catch (Throwable t) {
-                            Log.e(TAG, "CRASH DETECTED inside: " + methodName, t);
-                            throw t;
-                        }
-                    });
+                    // Suppress only the ad binding; every other component method is untouched.
+                    NativeHooks.hook("BiliMentionedSniper.bindToView", method, chain -> unitInstance);
                 }
+                hooked++;
             }
-            Log.d(TAG, "All methods hooked successfully.");
+            FbaLog.i("视频提及组件 Hook 完成: " + hooked + " 个必要方法（其余方法不拦截）");
         } catch (Throwable t) {
             Log.e(TAG, "Critical failure during hook initialization.", t);
         }

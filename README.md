@@ -6,7 +6,7 @@
 
 **哔哩哔哩 Xposed 去广告模块 · 小视频广告自动跳过**
 
-![version](https://img.shields.io/badge/version-1.2.0-ff2d55)
+![version](https://img.shields.io/badge/version-1.2.1--pre--release-ff2d55)
 [![xposed repo](https://img.shields.io/badge/Xposed%20Repo-listed-00aeec)](https://modules.lsposed.org/module/io.github.fesht377.biliads/)
 ![host](https://img.shields.io/badge/host-9.16.1%20tested-00aeec)
 ![platform](https://img.shields.io/badge/platform-Android%208.0%2B-3ddc84)
@@ -213,11 +213,11 @@ adb logcat -s FuckBiliAds
 
 完整历史见 [GitHub Releases](https://github.com/feSHt377/FuckBiliAds/releases)；这里只留当前版本要点。
 
-**1.2.0**
+**1.2.1（测试版）**
 
-- 全量迁移到 **libxposed API 102**（`XposedModule` + `hook(...).intercept(...)`），不再使用 legacy API 82；低于 API 102 的框架请继续用 1.1.2。
-- 新增「剔除提示附带位置」（默认关闭）：开启后提示形如 `已剔除 1 条广告（后3条）！FUCK BILI ADS！`。
-- 修复 `cm_v2:3` 被改写导致宿主 `type:unknown is not exist` 崩溃；小视频会话只对 Story 页面启动。
+- 精简视频提及组件 Hook：只拦截组件创建与绑定，不再把评论、生命周期等所有方法逐一套上 Hook，减少普通视频页首次切换评论或下滑时的停顿。
+- 移除该组件热路径日志；组件替换失败时保留原组件，不再返回 `null`。
+- 本版用于验证 OPPO Reno 14 + LSPatch 的卡顿反馈，尚未在该机型实测。
 
 ## 构建
 
