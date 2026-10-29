@@ -6,7 +6,7 @@
 
 **哔哩哔哩 Xposed 去广告模块 · 小视频广告自动跳过**
 
-![version](https://img.shields.io/badge/version-1.2.5--pre--release-ff2d55)
+![version](https://img.shields.io/badge/version-1.2.5-ff2d55)
 [![xposed repo](https://img.shields.io/badge/Xposed%20Repo-listed-00aeec)](https://modules.lsposed.org/module/io.github.fesht377.biliads/)
 ![host](https://img.shields.io/badge/host-9.17.0%20tested-00aeec)
 ![platform](https://img.shields.io/badge/platform-Android%208.0%2B-3ddc84)
@@ -216,12 +216,12 @@ adb logcat -s FuckBiliAds
 
 完整历史见 [GitHub Releases](https://github.com/feSHt377/FuckBiliAds/releases)；这里只留当前版本要点。
 
-**1.2.5（测试版）**
+**1.2.5**
 
 - 修复更新后第一次启动可能闪出开屏广告：在缓存商业开屏页创建前拦截，直接走宿主无广告退出流程，不再等待广告渲染完成后才跳过。
 - 请求拦截与展示兜底继续保留；`[SPLASH]` 日志可区分缓存页拦截与实际请求命中。
 
-## 1.2.4 变更（测试版）
+## 1.2.4 变更
 
 - 标注已适配 **哔哩哔哩 9.17.0**（LSPatch 实测核心功能）。
 - 合并剔除总开关与多选：广告默认勾选，可选直播、影视/番剧、课程、充电/预览视频；关闭总开关后不执行任何列表剔除。
