@@ -51,6 +51,7 @@ public final class StoryDebug {
                 return sb.append(" item=<none>").toString();
             }
             sb.append(" item=").append(item.getClass().getName());
+            sb.append(" goto=").append(StoryContentFilter.gotoOf(item));
             sb.append(" aid=").append(StoryView.aidOf(item));
             sb.append(" cid=").append(StoryView.cidOf(item));
             Object adType = StoryView.fieldValue(item, "adType");

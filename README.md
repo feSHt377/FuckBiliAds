@@ -6,7 +6,7 @@
 
 **哔哩哔哩 Xposed 去广告模块 · 小视频广告自动跳过**
 
-![version](https://img.shields.io/badge/version-1.2.2-ff2d55)
+![version](https://img.shields.io/badge/version-1.2.3--pre--release-ff2d55)
 [![xposed repo](https://img.shields.io/badge/Xposed%20Repo-listed-00aeec)](https://modules.lsposed.org/module/io.github.fesht377.biliads/)
 ![host](https://img.shields.io/badge/host-9.16.1%20tested-00aeec)
 ![platform](https://img.shields.io/badge/platform-Android%208.0%2B-3ddc84)
@@ -153,7 +153,7 @@ adb logcat -s FuckBiliAds
 
 | 分组 | 内容 |
 |---|---|
-| 小视频 | 自动跳过、跳过提示、列表剔除（实验）、剔除提示与位置 |
+| 小视频 | 自动跳过、跳过提示、列表剔除（实验）、可展开的自定义剔除内容、剔除提示与位置 |
 | 分享与标记 | 分享面板「标记广告」入口 |
 | 启动页 | 启动页配色、隐藏品牌开屏立绘 |
 | 模块更新 | 自动检查、测试版更新、版本信息与 Release 页面 |
@@ -215,11 +215,11 @@ adb logcat -s FuckBiliAds
 
 完整历史见 [GitHub Releases](https://github.com/feSHt377/FuckBiliAds/releases)；这里只留当前版本要点。
 
-**1.2.2**
+**1.2.3（测试版）**
 
-- 设置页按 **小视频 / 分享与标记 / 启动页 / 模块更新 / 调试工具 / 日志管理 / 运行诊断 / 关于模块** 重新分组。
-- 统一开关与操作项命名，补充默认状态、生效时机和用途说明；诊断信息改用更直观的状态文案。
-- 仅调整设置页布局与文案，不涉及 Hook、广告判定或配置存储逻辑。
+- 「小视频」新增 **自定义剔除内容** 可展开多选组件，与广告剔除共用入口及提示。
+- 可选屏蔽 **直播推荐 / 影视与番剧 / 课程 / 充电与预览视频**，全部默认关闭，当前播放条目不移除。
+- 使用稳定的 `goto` 语义字段判定，区分 `vertical_live` 与商业直播；页面诊断同步显示类型。
 
 ## 构建
 

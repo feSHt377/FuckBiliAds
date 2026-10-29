@@ -52,10 +52,13 @@ public final class StoryAdFilter {
             "已剔除 %d 条广告（后%d条）！FUCK BILI ADS！";
 
     private static final Set<String> HOOKED = new HashSet<>();
+    private static final java.util.Map<String, Long> LAST_BATCH_TOAST = new java.util.HashMap<>();
 
     private static volatile boolean entryHooked;
     private static volatile long filteredTotal;
     private static volatile long prunedTotal;
+    private static volatile long contentFilteredTotal;
+    private static volatile long contentPrunedTotal;
     private static volatile String lastError;
 
     private static Object cachedPlayer;
@@ -199,11 +202,16 @@ public final class StoryAdFilter {
         int nearestBehind = -1;
         for (int i = 0; i < src.size(); i++) {
             Object item = src.get(i);
-            if (isAd(item)) {
+            if (shouldRemove(item)) {
                 if (kept == null) {
                     kept = new ArrayList<>(src.subList(0, i));
                 }
                 dropped++;
+                int contentBit = StoryContentFilter.match(item, FbaPrefs.storyContentMask());
+                if (contentBit != 0) {
+                    contentFilteredTotal++;
+                    recordType(contentBit);
+                }
                 if (baseIndex >= 0 && currentPos >= 0) {
                     int behind = baseIndex + i - currentPos;
                     if (behind > 0 && (nearestBehind < 0 || behind < nearestBehind)) {
@@ -310,11 +318,16 @@ public final class StoryAdFilter {
             int nearestBehind = -1;
             for (int pos = count - 1; pos > currentPos && removed < MAX_PER_PASS; pos--) {
                 Object item = StoryView.findItem(adapter, pos);
-                if (!isAd(item)) {
+                if (!shouldRemove(item)) {
                     continue;
                 }
                 if (Boolean.TRUE.equals(callRemove(player, pos))) {
                     removed++;
+                    int contentBit = StoryContentFilter.match(item, FbaPrefs.storyContentMask());
+                    if (contentBit != 0) {
+                        contentPrunedTotal++;
+                        recordType(contentBit);
+                    }
                     if (FbaPrefs.storyFilterOffset()) {
                         int behind = pos - currentPos;
                         if (behind > 0 && (nearestBehind < 0 || behind < nearestBehind)) {
@@ -398,6 +411,29 @@ public final class StoryAdFilter {
 
     // ------------------------------------------------------------------- stats
 
+    /** Ads plus explicitly selected non-ad story types, decided per batch. */
+    static boolean shouldRemove(Object item) {
+        if (StoryView.fieldValue(item, "goto") == null) {
+            // Keep legacy/obfuscated models compatible: only ad filtering is safe
+            // when the semantic type cannot be established.
+            return isAd(item);
+        }
+        return isAd(item) || StoryContentFilter.match(item, FbaPrefs.storyContentMask()) != 0;
+    }
+
+    /** Coalesces selection changes into one log entry, keeping the UI quiet. */
+    private static void recordType(int bit) {
+        String label = StoryContentFilter.label(bit);
+        long now = System.currentTimeMillis();
+        Long previous;
+        synchronized (LAST_BATCH_TOAST) {
+            previous = LAST_BATCH_TOAST.put(label, now);
+        }
+        if (previous == null || now - previous > 5000L) {
+            FbaLog.i("[FILTER] 自定义剔除类型: " + label);
+        }
+    }
+
     static boolean isAd(Object item) {
         if (item == null) {
             return false;
@@ -416,7 +452,9 @@ public final class StoryAdFilter {
             state = state + " · 最近错误：" + lastError;
         }
         return state + " · 本会话剔除 " + filteredTotal + " 条（批次）+ "
-                + prunedTotal + " 条（存量）";
+                + prunedTotal + " 条（存量）"
+                + (contentFilteredTotal + contentPrunedTotal > 0
+                ? "，其中自定义类型 " + (contentFilteredTotal + contentPrunedTotal) + " 条" : "");
     }
 
     static void forget(Activity activity) {

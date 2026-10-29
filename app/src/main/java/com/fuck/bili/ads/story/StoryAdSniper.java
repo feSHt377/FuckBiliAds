@@ -401,7 +401,8 @@ public final class StoryAdSniper {
             Object adapter = StoryView.adapterOf(rv);
             boolean ad = isAd(item);
             String diag = "rv=" + simple(rv) + " adapter=" + simple(adapter) + " pos=" + pos
-                    + " item=" + simple(item) + " ad=" + ad + " " + adInfo(item);
+                    + " item=" + simple(item) + " goto=" + StoryContentFilter.gotoOf(item)
+                    + " ad=" + ad + " " + adInfo(item);
             StoryDiag.update(diag);
             reportDiag(diag);
             if (pos < 0) {

@@ -25,6 +25,7 @@ import android.view.View;
 import android.view.ViewGroup;
 import android.view.Window;
 import android.widget.Button;
+import android.widget.CheckBox;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.Switch;
@@ -34,6 +35,7 @@ import android.widget.Toast;
 import com.fuck.bili.ads.BuildConfig;
 import com.fuck.bili.ads.story.StoryAdFilter;
 import com.fuck.bili.ads.story.StoryAdSniper;
+import com.fuck.bili.ads.story.StoryContentFilter;
 import com.fuck.bili.ads.story.StoryDebug;
 import com.fuck.bili.ads.story.StoryDiag;
 
@@ -126,6 +128,7 @@ public final class FbaSettings {
                     "剔除广告后通过 Toast 显示本次剔除数量",
                     FbaPrefs.storyFilterToast(), titleColor, subColor, divider,
                     checked -> FbaPrefs.setStoryFilterToast(checked)));
+            content.addView(contentFilterGroup(context, titleColor, subColor, divider));
             content.addView(switchRow(context, "提示中显示广告位置",
                     "在剔除提示后追加「（后 N 条）」；默认关闭",
                     FbaPrefs.storyFilterOffset(), titleColor, subColor, divider,
@@ -295,6 +298,90 @@ public final class FbaSettings {
     }
 
     // ------------------------------------------------------------------- rows
+
+    /** Expandable multi-select group sharing the playlist filter with ad removal. */
+    private static View contentFilterGroup(Context context, int titleColor, int subColor, int divider) {
+        LinearLayout group = new LinearLayout(context);
+        group.setOrientation(LinearLayout.VERTICAL);
+
+        LinearLayout options = new LinearLayout(context);
+        options.setOrientation(LinearLayout.VERTICAL);
+        options.setVisibility(View.GONE);
+        TextView arrow = new TextView(context);
+        arrow.setTextSize(TypedValue.COMPLEX_UNIT_SP, 18);
+        arrow.setTextColor(subColor);
+
+        TextView summary = new TextView(context);
+        summary.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
+        summary.setTextColor(subColor);
+        summary.setPadding(dp(context, 16), dp(context, 2), dp(context, 16), dp(context, 8));
+
+        View header = row(context, "自定义剔除内容", null, arrow,
+                titleColor, subColor, divider, null);
+        group.addView(header);
+        group.addView(summary);
+        group.addView(options);
+
+        final int[] bits = {StoryContentFilter.LIVE, StoryContentFilter.PGC,
+                StoryContentFilter.COURSE, StoryContentFilter.PREVIEW};
+        final String[] labels = {"直播推荐", "影视 / 番剧", "课程", "充电 / 预览视频"};
+        final String[] descriptions = {"vertical_live", "vertical_pgc",
+                "vertical_course", "vertical_preview_av"};
+        for (int i = 0; i < bits.length; i++) {
+            final int bit = bits[i];
+            CheckBox check = new CheckBox(context);
+            check.setText(labels[i] + "  ·  " + descriptions[i]);
+            check.setTextSize(TypedValue.COMPLEX_UNIT_SP, 14);
+            check.setTextColor(titleColor);
+            check.setButtonTintList(ColorStateList.valueOf(ACCENT));
+            check.setPadding(dp(context, 12), dp(context, 8), dp(context, 12), dp(context, 8));
+            check.setChecked((FbaPrefs.storyContentMask() & bit) != 0);
+            check.setOnCheckedChangeListener((button, checked) -> {
+                int mask = FbaPrefs.storyContentMask();
+                FbaPrefs.setStoryContentMask(checked ? mask | bit : mask & ~bit);
+                summary.setText(contentFilterSummary());
+                FbaLog.i("pref 自定义剔除内容 = " + contentFilterSummary());
+            });
+            options.addView(check);
+        }
+
+        TextView note = new TextView(context);
+        note.setText("所选类型与广告一并通过「从列表剔除广告」处理；全部默认不勾选，当前正在播放的条目不会被移除。");
+        note.setTextSize(TypedValue.COMPLEX_UNIT_SP, 11);
+        note.setTextColor(subColor);
+        note.setPadding(dp(context, 16), dp(context, 4), dp(context, 16), dp(context, 12));
+        options.addView(note);
+        summary.setText(contentFilterSummary());
+
+        header.setOnClickListener(v -> {
+            boolean expand = options.getVisibility() != View.VISIBLE;
+            options.setVisibility(expand ? View.VISIBLE : View.GONE);
+            summary.setVisibility(expand ? View.GONE : View.VISIBLE);
+            arrow.setText(expand ? "⌃" : "⌄");
+        });
+        arrow.setText("⌄");
+        return group;
+    }
+
+    private static String contentFilterSummary() {
+        int mask = FbaPrefs.storyContentMask();
+        if (mask == 0) {
+            return "未选择额外类型，仅剔除广告 · 点击展开";
+        }
+        StringBuilder text = new StringBuilder("已选 ");
+        int count = 0;
+        int[] bits = {StoryContentFilter.LIVE, StoryContentFilter.PGC,
+                StoryContentFilter.COURSE, StoryContentFilter.PREVIEW};
+        for (int bit : bits) {
+            if ((mask & bit) != 0) {
+                if (count++ > 0) {
+                    text.append("、");
+                }
+                text.append(StoryContentFilter.label(bit));
+            }
+        }
+        return text.append(" · 点击修改").toString();
+    }
 
     private interface OnSwitch {
         void onChanged(boolean checked);
