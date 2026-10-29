@@ -6,7 +6,7 @@
 
 **哔哩哔哩 Xposed 去广告模块 · 小视频广告自动跳过**
 
-![version](https://img.shields.io/badge/version-1.2.8--pre--release-ff2d55)
+![version](https://img.shields.io/badge/version-1.2.9--pre--release-ff2d55)
 [![xposed repo](https://img.shields.io/badge/Xposed%20Repo-listed-00aeec)](https://modules.lsposed.org/module/io.github.fesht377.biliads/)
 ![host](https://img.shields.io/badge/host-9.17.0%20tested-00aeec)
 ![platform](https://img.shields.io/badge/platform-Android%208.0%2B-3ddc84)
@@ -218,33 +218,12 @@ adb logcat -s FuckBiliAds
 
 完整历史见 [GitHub Releases](https://github.com/feSHt377/FuckBiliAds/releases)；这里只留当前版本要点。
 
-**1.2.8（测试版）**
+**1.2.9（测试版）**
 
-- 修复 HD 我的页入口仍可能不显示：HD 判定改为按注入包名而非进程名，入口注入扩展到实际分组列表与旧列表，并拦截真实条目点击回调打开设置。
-
-## 1.2.7 变更（测试版）
-
-- 修复 HD「我的 → 更多服务」没有模块设置入口：同时注入实际展示的 `mNewStyleV2` 分组和旧服务列表，并在异步数据刷新时重试。
-- 保留 HD 独立开屏、播放页与信息流适配；自动更新仍默认仅正式版。
-
-## 1.2.6 变更（测试版）
-
-- 新增 **哔哩哔哩 HD**（`tv.danmaku.bilibilihd`）支持：独立开屏页工厂与展示兜底、HD 我的页设置入口、播放页关联推广拦截。
-- 复用 Pegasus 信息流、关注页动态过滤、底部导航、启动页外观、日志和更新检查；Pegasus 方法按结构匹配。
-- HD 不含手机版竖屏 Story，不加载小视频剔除与分享标记，设置页隐藏这些选项。
-- **自动更新默认只获取正式版**，需要 pre-release 时在「模块更新」手动开启。
-
-## 1.2.5 变更
-
-- 修复更新后第一次启动可能闪出开屏广告：在缓存商业开屏页创建前拦截，直接走宿主无广告退出流程，不再等待广告渲染完成后才跳过。
-- 请求拦截与展示兜底继续保留；`[SPLASH]` 日志可区分缓存页拦截与实际请求命中。
-
-## 1.2.4 变更
-
-- 标注已适配 **哔哩哔哩 9.17.0**（LSPatch 实测核心功能）。
-- 合并剔除总开关与多选：广告默认勾选，可选直播、影视/番剧、课程、充电/预览视频；关闭总开关后不执行任何列表剔除。
-- 播报改为「已剔除 N 个内容」；可开启详细播报，显示「广告 *1，直播 *2」等分类数量。
-- 日志文件最大 **100 KB**，写满覆盖旧内容；补充 `[SPLASH]` 开屏请求与展示兜底诊断。
+- 修复 HD「我的 → 更多服务」模块设置入口始终不出现：HD 的字段名在运行时是 `K`/`N`/`L`/`R` 这类单字母（反编译看到的 `mSectionListV2` 等只是 Kotlin 元数据还原出来的假名），入口改为按类型与元素结构匹配，并在菜单构建后、列表绑定前各补一次注入。
+- HD 设置项点击改为拦截行 `onClick(View)`，命中本模块 `uri` 才打开设置，其余条目行为不变。
+- 开屏拦截补齐品牌开屏接口 `/x/v2/splash/brand/list`，并新增 HD 决策层闸门（页面工厂返回 null）：已缓存的广告素材同样不会展示。
+- 运营活动开屏（拜年纪等）不属于广告，保持原样。
 
 ## 构建
 

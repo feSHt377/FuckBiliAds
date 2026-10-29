@@ -2,27 +2,58 @@ package com.fuck.bili.ads.ui;
 
 import android.content.Context;
 import android.os.Handler;
+import android.view.View;
+import android.view.ViewGroup;
+
+import androidx.recyclerview.widget.RecyclerView;
 
 import com.fuck.bili.ads.core.Host;
 import com.fuck.bili.ads.core.NativeHooks;
 import com.fuck.bili.ads.core.Reflect;
 
 import java.lang.reflect.Field;
+import java.lang.reflect.Method;
+import java.lang.reflect.Modifier;
+import java.util.ArrayDeque;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
+import java.util.Set;
+import java.util.WeakHashMap;
 
-/** Adds the settings item to HD's flat Mine service list and its page manager. */
+/**
+ * Adds the module entry to the HD (tablet) 我的 page.
+ *
+ * <p>HD renders that page as server driven cards; each card is a wrapper object
+ * holding a title plus a {@code List<MenuGroup.Item>}. The flat (uncarded)
+ * layout binds the items directly instead. Both shapes are supported here.
+ *
+ * <p>Every class, field and method this file touches is resolved
+ * <em>structurally</em>. HD is R8 obfuscated and keeps Kotlin metadata, so the
+ * metadata names a decompiler restores ({@code mSectionListV2}, {@code itemList},
+ * {@code title}) do not exist at runtime: name based reflection finds nothing
+ * and fails silently.
+ */
 public final class HdMineServiceEntry {
 
-    private static final String FRAGMENT = "tv.danmaku.bilibilihd.ui.main.mine.HdHomeUserCenterFragment";
+    private static final String FRAGMENT =
+            "tv.danmaku.bilibilihd.ui.main.mine.HdHomeUserCenterFragment";
     private static final String ITEM = "com.bilibili.lib.homepage.mine.MenuGroup$Item";
+    /** Anchor used to locate the card that hosts the host's own settings row. */
+    private static final String HOST_SETTINGS_URI = "bilibili://main/preference";
     private static final String SETTINGS_URI = "bilibili://fuckbiliads/settings";
+    private static final String ITEM_TITLE = "FuckBiliAds";
+    private static final String MORE_SERVICES = "更多服务";
     private static final long ITEM_ID = 0x4642414CL;
 
-    private static volatile boolean installed;
-    private static volatile int attempts;
-    private static final java.util.Set<Class<?>> CLICK_HOOKED =
-            java.util.Collections.newSetFromMap(new java.util.WeakHashMap<Class<?>, Boolean>());
+    private static final Set<Class<?>> BIND_HOOKED =
+            Collections.newSetFromMap(new WeakHashMap<Class<?>, Boolean>());
+    private static final Set<Class<?>> CLICK_HOOKED =
+            Collections.newSetFromMap(new WeakHashMap<Class<?>, Boolean>());
+
+    private static volatile long lastEnsureAt;
+    private static volatile boolean injectedOnce;
+    private static volatile int misses;
 
     private HdMineServiceEntry() {
     }
@@ -33,225 +64,607 @@ public final class HdMineServiceEntry {
         }
         try {
             Class<?> fragment = Reflect.findClass(FRAGMENT, loader);
-            NativeHooks.hookAllMethods("HdMineServiceEntry.onViewCreated", fragment, "onViewCreated",
-                    chain -> {
-                        Object result = chain.proceed();
-                        schedule(chain.getThisObject());
-                        return result;
-                    });
-            NativeHooks.hookAllMethods("HdMineServiceEntry.onResume", fragment, "onResume",
-                    chain -> {
-                        Object result = chain.proceed();
-                        schedule(chain.getThisObject());
-                        return result;
-                    });
-            hookPageManager(loader);
-            hookDirectItemClick(loader);
+            hookLifecycle(fragment, "onViewCreated");
+            hookLifecycle(fragment, "onResume");
+            int builders = hookMenuBuilders(fragment);
             FbaRuntime.mark("设置入口", true);
-            FbaLog.i("[HD] 我的页设置入口 Hook 已安装");
+            FbaLog.i("[HD] 我的页设置入口 Hook 已安装，菜单构建方法=" + builders);
         } catch (Throwable error) {
             FbaLog.e("[HD] 我的页设置入口安装失败", error);
         }
     }
 
-    /** Registers our URI in the same MinePageManager map used by host entries. */
-    private static void hookPageManager(ClassLoader loader) {
-        try {
-            Class<?> manager = Reflect.findClass("tv.danmaku.bili.ui.main2.mine.b", loader);
-            Class<?> base = Reflect.findClass("com.bilibili.lib.ui.BaseFragment", loader);
-            NativeHooks.hookAllMethods("HdMineServiceEntry.PageManagerRegister", manager, "b", chain -> {
-                Object item = null;
-                for (Object arg : chain.getArgs()) {
-                    if (arg != null && ITEM.equals(arg.getClass().getName())) {
-                        item = arg;
-                        break;
-                    }
+    private static void hookLifecycle(Class<?> fragment, String method) {
+        NativeHooks.hookAllMethods("HdMineServiceEntry." + method, fragment, method, chain -> {
+            Object result = chain.proceed();
+            schedule(chain.getThisObject());
+            return result;
+        });
+    }
+
+    /**
+     * Hooks the two private menu builders by descriptor: {@code (Context, List)}
+     * rebuilds the flat list, {@code (Context, <model>)} rebuilds the cards.
+     * Matching on the signature keeps this independent of the obfuscated names.
+     */
+    private static int hookMenuBuilders(Class<?> fragment) {
+        int hooked = 0;
+        for (Method method : fragment.getDeclaredMethods()) {
+            if (method.getReturnType() != void.class) {
+                continue;
+            }
+            Class<?>[] parameters = method.getParameterTypes();
+            if (parameters.length != 2 || parameters[0] != Context.class) {
+                continue;
+            }
+            Class<?> second = parameters[1];
+            if (second != List.class && (second.isPrimitive() || second == String.class)) {
+                continue;
+            }
+            NativeHooks.hook("HdMineServiceEntry.build", method, chain -> {
+                Object result = chain.proceed();
+                try {
+                    inject(chain.getThisObject());
+                } catch (Throwable error) {
+                    FbaLog.e("[HD] 我的页菜单构建后注入失败", error);
                 }
-                if (item != null && SETTINGS_URI.equals(Reflect.tryGetObjectField(item, "uri"))) {
-                    FbaLog.i("[HD] 打开模块设置");
-                    Object fragment = chain.getArg(0);
-                    Context context = contextOf(fragment);
-                    FbaSettings.show(context);
-                    return null;
-                }
-                return chain.proceed();
+                return result;
             });
-            FbaLog.i("[HD] 设置项路由已安装");
-        } catch (Throwable error) {
-            FbaLog.e("[HD] 设置项路由安装失败", error);
+            hooked++;
+        }
+        return hooked;
+    }
+
+    /** Retries while the server driven menu is still loading. */
+    private static void schedule(Object fragment) {
+        inject(fragment);
+        Handler handler = FbaRuntime.handler();
+        if (handler == null) {
+            return;
+        }
+        for (int i = 1; i <= 24; i++) {
+            final long delay = i * 700L;
+            handler.postDelayed(() -> inject(fragment), delay);
         }
     }
 
-    /** Intercepts the actual HD item callback, not just registration. */
-    private static void hookDirectItemClick(ClassLoader loader) {
-        try {
-            Class<?> callback = Reflect.findClass(FRAGMENT + "$h", loader);
-            Class<?> item = Reflect.findClass(ITEM, loader);
-            NativeHooks.hookAllMethods("HdMineServiceEntry.DirectItemClick", callback, "a", chain -> {
-                Object clicked = chain.getArg(0);
-                if (clicked != null && SETTINGS_URI.equals(Reflect.tryGetObjectField(clicked, "uri"))) {
-                    Object listener = chain.getThisObject();
-                    Context context = FbaRuntime.context();
-                    Object owner = Reflect.tryGetObjectField(listener, "this$0");
-                    Object activity = Reflect.tryCallMethod(owner, "getActivity");
-                    if (activity instanceof Context) {
-                        context = (Context) activity;
-                    }
-                    FbaLog.i("[HD] 设置项点击，打开模块设置");
-                    FbaSettings.show(context);
-                    return null;
-                }
-                return chain.proceed();
-            });
-            FbaLog.i("[HD] 设置项直接点击回调已安装");
-        } catch (Throwable error) {
-            FbaLog.e("[HD] 设置项直接点击回调安装失败", error);
-        }
-    }
-
-    private static Context contextOf(Object fragment) {
-        Object activity = Reflect.tryCallMethod(fragment, "getActivity");
-        return activity instanceof Context ? (Context) activity : FbaRuntime.context();
-    }
-
+    /** Menu rebuilding may run off the main thread; views must not. */
     private static void inject(Object fragment) {
         if (fragment == null) {
             return;
         }
+        FbaRuntime.onMain(() -> injectNow(fragment));
+    }
+
+    private static void injectNow(Object fragment) {
         try {
-            FbaLog.d("[HD] 菜单注入尝试: " + fragment.getClass().getName());
-            Object section = Reflect.tryGetObjectField(fragment, "mSectionListV2");
-            if (!(section instanceof List)) {
+            Object view = Reflect.tryCallMethod(fragment, "getView");
+            if (!(view instanceof View)) {
                 return;
             }
-            @SuppressWarnings("unchecked")
-            List<Object> items = (List<Object>) section;
-            for (Object item : items) {
-                if (SETTINGS_URI.equals(Reflect.tryGetObjectField(item, "uri"))) {
-                    installed = true;
-                    return;
-                }
-            }
-            boolean hasOldItems = !items.isEmpty();
-            Class<?> itemType = Reflect.findClass(ITEM, fragment.getClass().getClassLoader());
-            Object item = Reflect.newInstance(itemType);
-            set(item, new String[]{"id", "f102955id"}, ITEM_ID);
-            set(item, new String[]{"title"}, "FuckBiliAds");
-            set(item, new String[]{"uri"}, SETTINGS_URI);
-            set(item, new String[]{"needLogin"}, 0);
-            set(item, new String[]{"visible"}, 0);
-            Context context = contextOf(fragment);
-            if (context != null) {
-                int icon = context.getResources().getIdentifier("ic_mine_setting", "drawable",
-                        context.getPackageName());
-                if (icon != 0) {
-                    set(item, new String[]{"iconResId"}, icon);
-                }
-            }
-            // Register before appending, matching the host's own Mine item setup.
-            Object manager = Reflect.tryGetObjectField(fragment, "mPageManager");
-            Object base = Reflect.tryGetObjectField(fragment, "mHdMineFragment");
-            if (manager != null && base != null) {
-                Reflect.callMethod(manager, "b", base, item);
-            }
-            int groupIndex = injectIntoMoreServices(fragment, item);
-            // V2 grouped list is what the visible More Services renders; only fall
-            // back to the flat list when no group accepted the entry.
-            if (hasOldItems && groupIndex < 0) {
-                items.add(item);
-            }
-            if (groupIndex < 0) {
-                if (attempts++ < 40) {
-                    postDelayed(() -> inject(fragment), 500L);
+            Object adapter = findMenuAdapter((View) view);
+            if (adapter == null) {
+                if (misses++ % 8 == 0) {
+                    FbaLog.d("[HD] 我的页菜单尚未就绪，第 " + misses + " 次探测");
                 }
                 return;
             }
-            Object adapter = Reflect.tryGetObjectField(fragment, "mAdapter");
-            if (adapter != null) {
-                Reflect.tryCallMethod(adapter, "notifyDataSetChanged");
+            hookBind(adapter);
+            if (ensure(adapter, true)) {
+                if (!injectedOnce) {
+                    injectedOnce = true;
+                    FbaRuntime.mark("服务入口", true);
+                    FbaLog.i("[HD] 我的页设置入口已注入，适配器=" + adapter.getClass().getName());
+                }
+            } else if (!injectedOnce && misses++ % 4 == 0) {
+                FbaLog.d("[HD] 菜单已找到但条目未写入，适配器=" + adapter.getClass().getName());
             }
-            Object adapterV2 = Reflect.tryGetObjectField(fragment, "mAdapterV2");
-            if (adapterV2 != null) {
-                Reflect.tryCallMethod(adapterV2, "notifyDataSetChanged");
-            }
-            installed = true;
-            FbaRuntime.mark("服务入口", true);
-            FbaLog.i("[HD] 我的页设置入口已注入，旧列表=" + hasOldItems
-                    + "，更多服务分组=" + groupIndex);
         } catch (Throwable error) {
             FbaLog.e("[HD] 我的页设置入口注入失败", error);
         }
     }
 
-    /** Injects into the grouped adapter used by the visible HD More Services section. */
-    private static int injectIntoMoreServices(Object fragment, Object item) {
-        Object model = Reflect.tryGetObjectField(fragment, "mNewStyleV2");
-        Object rawGroups = Reflect.tryCallMethod(model, "a");
-        if (!(rawGroups instanceof List)) {
-            return -1;
+    // ------------------------------------------------------------------ adapter
+
+    /** Finds the RecyclerView adapter that owns the Mine menu. */
+    private static Object findMenuAdapter(View root) {
+        ArrayDeque<View> queue = new ArrayDeque<>();
+        queue.add(root);
+        while (!queue.isEmpty()) {
+            View view = queue.poll();
+            if (view instanceof RecyclerView) {
+                Object adapter = Reflect.tryCallMethod(view, "getAdapter");
+                if (adapter != null && (groupList(adapter) != null || flatItems(adapter) != null)) {
+                    return adapter;
+                }
+            }
+            if (view instanceof ViewGroup) {
+                ViewGroup group = (ViewGroup) view;
+                for (int i = 0; i < group.getChildCount(); i++) {
+                    queue.add(group.getChildAt(i));
+                }
+            }
         }
-        @SuppressWarnings("unchecked")
-        List<Object> groups = (List<Object>) rawGroups;
-        int fallback = -1;
-        for (int i = 0; i < groups.size(); i++) {
-            Object group = groups.get(i);
-            Object title = Reflect.tryCallMethod(group, "getTitle");
-            Object rawItems = Reflect.tryCallMethod(group, "a");
-            if (!(rawItems instanceof List)) {
+        return null;
+    }
+
+    /**
+     * Re-applies the entry on every bind so host refreshes keep it, and hooks
+     * the row click class of whichever holders appear.
+     */
+    private static void hookBind(final Object adapter) {
+        final Class<?> type = adapter.getClass();
+        if (!BIND_HOOKED.add(type)) {
+            return;
+        }
+        try {
+            NativeHooks.hookAllMethods("HdMineServiceEntry.onBindViewHolder", type,
+                    "onBindViewHolder", chain -> {
+                        Object self = chain.getThisObject();
+                        try {
+                            long now = System.currentTimeMillis();
+                            if (now - lastEnsureAt >= 400L) {
+                                lastEnsureAt = now;
+                                ensure(self, false);
+                            }
+                        } catch (Throwable error) {
+                            FbaLog.e("[HD] 菜单绑定时补注入失败", error);
+                        }
+                        Object result = chain.proceed();
+                        try {
+                            hookRow(chain.getArg(0));
+                        } catch (Throwable error) {
+                            FbaLog.e("[HD] 菜单行 Hook 失败", error);
+                        }
+                        return result;
+                    });
+            FbaLog.i("[HD] 菜单适配器已挂载: " + type.getName());
+        } catch (Throwable error) {
+            FbaLog.e("[HD] 菜单适配器挂载失败: " + type.getName(), error);
+        }
+    }
+
+    /** Hooks the row click and follows nested RecyclerViews (card layout). */
+    private static void hookRow(Object holder) {
+        if (holder == null) {
+            return;
+        }
+        Object itemView = Reflect.tryGetObjectField(holder, "itemView");
+        if (!(itemView instanceof View)) {
+            return;
+        }
+        hookRowClick(holder);
+        ArrayDeque<View> queue = new ArrayDeque<>();
+        queue.add((View) itemView);
+        while (!queue.isEmpty()) {
+            View view = queue.poll();
+            if (view instanceof RecyclerView) {
+                Object nested = Reflect.tryCallMethod(view, "getAdapter");
+                if (nested != null) {
+                    hookBind(nested);
+                }
+            }
+            if (view instanceof ViewGroup) {
+                ViewGroup group = (ViewGroup) view;
+                for (int i = 0; i < group.getChildCount(); i++) {
+                    queue.add(group.getChildAt(i));
+                }
+            }
+        }
+    }
+
+    private static void hookRowClick(Object holder) {
+        final Class<?> type = holder.getClass();
+        if (!CLICK_HOOKED.add(type)) {
+            return;
+        }
+        Method onClick = null;
+        for (Class<?> c = type; c != null && c != Object.class && onClick == null; c = c.getSuperclass()) {
+            try {
+                onClick = c.getDeclaredMethod("onClick", View.class);
+            } catch (Throwable ignored) {
+                // keep walking
+            }
+        }
+        if (onClick == null) {
+            return;
+        }
+        try {
+            NativeHooks.hook("HdMineServiceEntry.onClick", onClick, chain -> {
+                Object item = itemField(chain.getThisObject());
+                if (item == null || !SETTINGS_URI.equals(stringField(item, "uri"))) {
+                    return chain.proceed();
+                }
+                Context context = null;
+                Object view = Reflect.tryGetObjectField(chain.getThisObject(), "itemView");
+                if (view instanceof View) {
+                    context = ((View) view).getContext();
+                }
+                if (context == null) {
+                    context = FbaRuntime.context();
+                }
+                FbaLog.i("[HD] 设置项点击，打开模块设置");
+                FbaSettings.show(context);
+                return null;
+            });
+            FbaLog.i("[HD] 设置项点击已挂载: " + type.getName());
+        } catch (Throwable error) {
+            FbaLog.e("[HD] 设置项点击挂载失败", error);
+        }
+    }
+
+    /** The {@code MenuGroup.Item} a row holder is currently bound to. */
+    private static Object itemField(Object holder) {
+        for (Field field : allFields(holder.getClass())) {
+            if (Modifier.isStatic(field.getModifiers()) || !isItemType(field.getType())) {
                 continue;
             }
-            @SuppressWarnings("unchecked")
-            List<Object> items = (List<Object>) rawItems;
-            for (Object existing : items) {
-                if (SETTINGS_URI.equals(Reflect.tryGetObjectField(existing, "uri"))) {
-                    return i;
+            try {
+                field.setAccessible(true);
+                return field.get(holder);
+            } catch (Throwable ignored) {
+                // next field
+            }
+        }
+        return null;
+    }
+
+    // ------------------------------------------------------------------- models
+
+    /**
+     * Returns the card list: either an adapter field that is itself a list of
+     * cards, or a wrapper object exposing such a list through a no-arg method.
+     */
+    @SuppressWarnings("unchecked")
+    static List<Object> groupList(Object adapter) {
+        for (Field field : allFields(adapter.getClass())) {
+            if (Modifier.isStatic(field.getModifiers())) {
+                continue;
+            }
+            Object value = read(field, adapter);
+            if (value instanceof List) {
+                List<Object> list = (List<Object>) value;
+                if (isGroupList(list)) {
+                    return list;
+                }
+                continue;
+            }
+            if (value == null || value instanceof View || value instanceof CharSequence) {
+                continue;
+            }
+            for (Method method : value.getClass().getDeclaredMethods()) {
+                if (Modifier.isStatic(method.getModifiers())
+                        || method.getParameterTypes().length != 0
+                        || method.getReturnType() != List.class) {
+                    continue;
+                }
+                try {
+                    method.setAccessible(true);
+                    Object result = method.invoke(value);
+                    if (result instanceof List && isGroupList((List<Object>) result)) {
+                        return (List<Object>) result;
+                    }
+                } catch (Throwable ignored) {
+                    // try next method
                 }
             }
-            if (String.valueOf(title).contains("更多服务")) {
-                items.add(item);
+        }
+        return null;
+    }
+
+    private static boolean isGroupList(List<Object> list) {
+        if (list.isEmpty()) {
+            return false;
+        }
+        Object first = list.get(0);
+        return first != null && itemsOf(first) != null;
+    }
+
+    /** The flat item list an adapter renders directly (no cards). */
+    @SuppressWarnings("unchecked")
+    static List<Object> flatItems(Object adapter) {
+        for (Field field : allFields(adapter.getClass())) {
+            if (Modifier.isStatic(field.getModifiers()) || !List.class.isAssignableFrom(field.getType())) {
+                continue;
+            }
+            Object value = read(field, adapter);
+            if (!(value instanceof List)) {
+                continue;
+            }
+            List<Object> list = (List<Object>) value;
+            if (!list.isEmpty() && isItem(list.get(0))) {
+                return list;
+            }
+        }
+        return null;
+    }
+
+    /** Items of one card: the list field whose elements are menu items. */
+    @SuppressWarnings("unchecked")
+    static List<Object> itemsOf(Object group) {
+        List<Object> empty = null;
+        for (Field field : allFields(group.getClass())) {
+            if (Modifier.isStatic(field.getModifiers()) || !List.class.isAssignableFrom(field.getType())) {
+                continue;
+            }
+            Object value = read(field, group);
+            if (!(value instanceof List)) {
+                continue;
+            }
+            List<Object> list = (List<Object>) value;
+            if (!list.isEmpty() && isItem(list.get(0))) {
+                return list;
+            }
+            if (list.isEmpty() && empty == null) {
+                empty = list;
+            }
+        }
+        return empty;
+    }
+
+    static String titleOf(Object group) {
+        for (Field field : allFields(group.getClass())) {
+            if (Modifier.isStatic(field.getModifiers()) || field.getType() != String.class) {
+                continue;
+            }
+            Object value = read(field, group);
+            if (value instanceof String) {
+                return (String) value;
+            }
+        }
+        return "";
+    }
+
+    private static boolean isItem(Object value) {
+        return value != null && isItemType(value.getClass());
+    }
+
+    /** Compact card dump so a single log line explains where the entry landed. */
+    private static String describe(List<Object> groups) {
+        StringBuilder builder = new StringBuilder();
+        for (int i = 0; i < groups.size(); i++) {
+            List<Object> items = itemsOf(groups.get(i));
+            if (i > 0) {
+                builder.append(" | ");
+            }
+            builder.append(i).append(':').append(titleOf(groups.get(i)))
+                    .append('(').append(items == null ? -1 : items.size()).append(')');
+        }
+        return builder.toString();
+    }
+
+    private static boolean isItemType(Class<?> type) {
+        return ITEM.equals(type.getName());
+    }
+
+    // ---------------------------------------------------------------- injection
+
+    private static boolean ensure(Object adapter, boolean notify) {
+        if (adapter == null) {
+            return false;
+        }
+        List<Object> groups = groupList(adapter);
+        if (groups != null && !groups.isEmpty()) {
+            if (containsOurItem(groups)) {
+                return true;
+            }
+            int index = pickGroup(groups);
+            if (index < 0) {
+                return false;
+            }
+            Object group = groups.get(index);
+            Object item = buildItem(FbaRuntime.context(), groups);
+            if (item == null || !append(group, item)) {
+                return false;
+            }
+            FbaLog.i("[HD] 设置项写入卡片 " + index + "，卡片=" + describe(groups));
+            if (notify) {
+                try {
+                    Reflect.callMethod(adapter, "notifyItemChanged", index);
+                } catch (Throwable error) {
+                    FbaLog.d("[HD] notifyItemChanged 失败: " + error);
+                }
+            }
+            return true;
+        }
+        List<Object> flat = flatItems(adapter);
+        if (flat == null) {
+            return false;
+        }
+        if (containsUri(flat, SETTINGS_URI)) {
+            return true;
+        }
+        Object item = buildItem(FbaRuntime.context(), null);
+        if (item == null || !flat.add(item)) {
+            return false;
+        }
+        FbaLog.i("[HD] 设置项写入平铺列表");
+        if (notify) {
+            Reflect.tryCallMethod(adapter, "notifyDataSetChanged");
+        }
+        return true;
+    }
+
+    private static boolean containsOurItem(List<Object> groups) {
+        for (Object group : groups) {
+            List<Object> items = itemsOf(group);
+            if (items != null && containsUri(items, SETTINGS_URI)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static boolean containsUri(List<Object> items, String uri) {
+        for (Object item : items) {
+            if (uri.equals(stringField(item, "uri"))) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Picks the card that should hold the entry: the card hosting the host's own
+     * settings row wins, then the "更多服务" card, then the last populated card.
+     */
+    static int pickGroup(List<Object> groups) {
+        for (int i = 0; i < groups.size(); i++) {
+            List<Object> items = itemsOf(groups.get(i));
+            if (items != null && containsUri(items, HOST_SETTINGS_URI)) {
                 return i;
             }
-            if (String.valueOf(title).contains("更多服务")) {
-                fallback = i;
+        }
+        for (int i = 0; i < groups.size(); i++) {
+            if (titleOf(groups.get(i)).contains(MORE_SERVICES)) {
+                return i;
             }
         }
-        // A missing group title is not enough to select an arbitrary service group.
-        return fallback;
+        for (int i = groups.size() - 1; i >= 0; i--) {
+            List<Object> items = itemsOf(groups.get(i));
+            if (items != null && !items.isEmpty()) {
+                return i;
+            }
+        }
+        return -1;
     }
 
-    private static void postDelayed(Runnable action, long delayMs) {
-        Handler handler = FbaRuntime.handler();
-        if (handler != null) {
-            handler.postDelayed(action, delayMs);
+    private static boolean append(Object group, Object item) {
+        List<Object> items = itemsOf(group);
+        if (items != null) {
+            try {
+                items.add(item);
+                return true;
+            } catch (Throwable error) {
+                FbaLog.e("[HD] 追加设置项失败", error);
+                return false;
+            }
+        }
+        List<Object> created = new ArrayList<>();
+        created.add(item);
+        for (Method method : group.getClass().getDeclaredMethods()) {
+            if (method.getReturnType() != void.class
+                    || method.getParameterTypes().length != 1
+                    || method.getParameterTypes()[0] != List.class) {
+                continue;
+            }
+            try {
+                method.setAccessible(true);
+                method.invoke(group, created);
+                return true;
+            } catch (Throwable ignored) {
+                // try next setter
+            }
+        }
+        return false;
+    }
+
+    private static Object buildItem(Context context, List<Object> groups) {
+        if (context == null) {
+            return null;
+        }
+        try {
+            Class<?> itemClass = Reflect.findClass(ITEM, context.getClassLoader());
+            Object item = Reflect.newInstance(itemClass);
+            setField(item, "id", ITEM_ID);
+            setField(item, "title", ITEM_TITLE);
+            setField(item, "uri", SETTINGS_URI);
+            setField(item, "needLogin", 0);
+            setField(item, "visible", 1);
+            setField(item, "localRedDot", 0);
+            int icon = hostSettingsIcon(groups);
+            if (icon == 0) {
+                icon = context.getResources().getIdentifier("ic_mine_setting", "drawable",
+                        context.getPackageName());
+            }
+            if (icon != 0) {
+                setField(item, "iconResId", icon);
+            }
+            return item;
+        } catch (Throwable error) {
+            FbaLog.e("[HD] 构造设置项失败", error);
+            return null;
         }
     }
 
-    private static void schedule(Object fragment) {
-        attempts = 0;
-        inject(fragment);
-        for (int i = 1; i <= 12; i++) {
-            postDelayed(() -> inject(fragment), i * 500L);
+    /** Reuses the icon of the host's own settings row so the entry looks native. */
+    private static int hostSettingsIcon(List<Object> groups) {
+        if (groups == null) {
+            return 0;
         }
-    }
-
-    private static void set(Object target, String[] names, Object value) throws Exception {
-        for (String name : names) {
-            for (Class<?> type = target.getClass(); type != null; type = type.getSuperclass()) {
-                try {
-                    Field field = type.getDeclaredField(name);
-                    field.setAccessible(true);
-                    if (field.getType() == long.class && value instanceof Number) {
-                        field.setLong(target, ((Number) value).longValue());
-                    } else if (field.getType() == int.class && value instanceof Number) {
-                        field.setInt(target, ((Number) value).intValue());
-                    } else if (!field.getType().isPrimitive()) {
-                        field.set(target, value);
-                    }
-                    return;
-                } catch (NoSuchFieldException ignored) {
-                    // Try the next known field name.
+        for (Object group : groups) {
+            List<Object> items = itemsOf(group);
+            if (items == null) {
+                continue;
+            }
+            for (Object item : items) {
+                if (!HOST_SETTINGS_URI.equals(stringField(item, "uri"))) {
+                    continue;
+                }
+                Object icon = field(item, "iconResId");
+                if (icon instanceof Integer && (Integer) icon != 0) {
+                    return (Integer) icon;
                 }
             }
+        }
+        return 0;
+    }
+
+    // ------------------------------------------------------------------ helpers
+
+    private static List<Field> allFields(Class<?> start) {
+        List<Field> fields = new ArrayList<>();
+        for (Class<?> type = start; type != null && type != Object.class; type = type.getSuperclass()) {
+            Collections.addAll(fields, type.getDeclaredFields());
+        }
+        return fields;
+    }
+
+    private static Object read(Field field, Object target) {
+        try {
+            field.setAccessible(true);
+            return field.get(target);
+        } catch (Throwable ignored) {
+            return null;
+        }
+    }
+
+    private static Object field(Object target, String name) {
+        if (target == null) {
+            return null;
+        }
+        for (Field field : allFields(target.getClass())) {
+            if (field.getName().equals(name)) {
+                return read(field, target);
+            }
+        }
+        return null;
+    }
+
+    private static String stringField(Object target, String name) {
+        Object value = field(target, name);
+        return value instanceof String ? (String) value : null;
+    }
+
+    private static void setField(Object target, String name, Object value) {
+        for (Field field : allFields(target.getClass())) {
+            if (!field.getName().equals(name)) {
+                continue;
+            }
+            try {
+                field.setAccessible(true);
+                Class<?> type = field.getType();
+                if (type == long.class && value instanceof Number) {
+                    field.setLong(target, ((Number) value).longValue());
+                } else if (type == int.class && value instanceof Number) {
+                    field.setInt(target, ((Number) value).intValue());
+                } else if (!type.isPrimitive()) {
+                    field.set(target, value);
+                }
+            } catch (Throwable ignored) {
+                // best effort
+            }
+            return;
         }
     }
 }

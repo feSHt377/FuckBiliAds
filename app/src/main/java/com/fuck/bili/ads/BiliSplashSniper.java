@@ -24,6 +24,10 @@ public final class BiliSplashSniper {
     private static final boolean DEBUG_INTERVAL = false;
     private static final int DEBUG_SHOW_SECONDS = 1;
     private static final int DEBUG_PULL_SECONDS = 5;
+    /** 商业开屏、展示上报、品牌开屏三条链路；运营活动开屏不属于广告，保持原样。 */
+    private static final String SPLASH_LIST_PATH = "/x/v2/splash/list";
+    private static final String SPLASH_SHOW_PATH = "/x/v2/splash/show";
+    private static final String SPLASH_BRAND_PATH = "/x/v2/splash/brand/list";
     private static final AtomicBoolean INSTALLED = new AtomicBoolean();
     private static final AtomicLong LIST_BLOCKED = new AtomicLong();
     private static final AtomicLong SHOW_BLOCKED = new AtomicLong();
@@ -41,9 +45,41 @@ public final class BiliSplashSniper {
         installRequestBlock(classLoader);
         installEarlySplashGate(classLoader);
         installHdSplashGate(classLoader);
+        if (Host.isHd()) installHdDecisionGate(classLoader);
         if (DEBUG_INTERVAL) installDebugIntervals(classLoader);
         installBrandSplashBlock(classLoader);
         installSplashThemeHook(classLoader);
+    }
+
+    /**
+     * HD attaches the splash fragment only when this factory returns non-null,
+     * so this gate holds even if the page factory below is refactored away.
+     */
+    private static void installHdDecisionGate(ClassLoader loader) {
+        try {
+            Class<?> helper = Reflect.findClass("tv.danmaku.bili.ui.splash.MainSplashHelper", loader);
+            Class<?> splash = Reflect.findClass("tv.danmaku.bili.ui.splash.ad.model.Splash", loader);
+            Class<?> fragment = Reflect.findClass("androidx.fragment.app.Fragment", loader);
+            Method target = null;
+            for (Method method : helper.getDeclaredMethods()) {
+                Class<?>[] parameters = method.getParameterTypes();
+                if (method.getReturnType() == fragment && parameters.length == 2
+                        && parameters[0] == splash && parameters[1] == boolean.class) {
+                    target = method;
+                    break;
+                }
+            }
+            if (target == null) {
+                throw new NoSuchMethodException("MainSplashHelper splash fragment factory");
+            }
+            NativeHooks.hook("BiliSplashSniper.HdDecisionGate", target, chain -> {
+                FbaLog.i("[SPLASH][HD] 开屏片段创建已拦截（决策层）");
+                return null;
+            });
+            FbaLog.i("[SPLASH][HD] 决策层拦截已安装");
+        } catch (Throwable error) {
+            FbaLog.e("[SPLASH][HD] 决策层拦截安装失败", error);
+        }
     }
 
     /**
@@ -215,10 +251,11 @@ public final class BiliSplashSniper {
                 }
                 return chain.proceed();
             });
-            FbaLog.i("[SPLASH] 请求拦截已安装: /x/v2/splash/list, /x/v2/splash/show");
+            FbaLog.i("[SPLASH] 请求拦截已安装: 商业/上报/品牌 三条开屏链路");
             Log.d(TAG, "[SplashBlockInstall] installed via OkHttpClient.Builder.build"
                     + ", interface=" + interceptorType.getName() + ", chainInterface=" + chainType.getName()
-                    + ", targets=/x/v2/splash/list,/x/v2/splash/show, debugInterval=" + DEBUG_INTERVAL);
+                    + ", targets=" + SPLASH_LIST_PATH + "," + SPLASH_SHOW_PATH + ","
+                            + SPLASH_BRAND_PATH + ", debugInterval=" + DEBUG_INTERVAL);
         } catch (Throwable error) {
             FbaLog.e("[SPLASH] 请求拦截安装失败", error);
             Log.d(TAG, "[SplashBlockInstall] FAILED: " + Log.getStackTraceString(error));
@@ -240,14 +277,20 @@ public final class BiliSplashSniper {
         catch (java.lang.reflect.InvocationTargetException error) { throw error.getCause(); }
     }
 
-    private static boolean isTarget(String host, String path, String method) {
+    static boolean isTarget(String host, String path, String method) {
         return "app.bilibili.com".equalsIgnoreCase(host) && "GET".equalsIgnoreCase(method)
-                && ("/x/v2/splash/list".equals(path) || "/x/v2/splash/show".equals(path));
+                && (SPLASH_LIST_PATH.equals(path) || SPLASH_SHOW_PATH.equals(path)
+                || SPLASH_BRAND_PATH.equals(path));
     }
 
     private static String emptyResponse(String path) {
-        if ("/x/v2/splash/show".equals(path)) {
+        if (SPLASH_SHOW_PATH.equals(path)) {
             return "{\"code\":0,\"message\":\"OK\",\"ttl\":1,\"data\":{\"show\":[],\"splash_request_id\":\"\"}}";
+        }
+        if (SPLASH_BRAND_PATH.equals(path)) {
+            // 品牌开屏（商业品牌图，本地缓存）：回空列表，宿主视为“无素材”。
+            return "{\"code\":0,\"message\":\"OK\",\"ttl\":1,\"data\":{"
+                    + "\"list\":[],\"collection_list\":[],\"pull_interval\":900}}";
         }
         int show = DEBUG_INTERVAL ? DEBUG_SHOW_SECONDS : 900;
         int pull = DEBUG_INTERVAL ? DEBUG_PULL_SECONDS : 900;
