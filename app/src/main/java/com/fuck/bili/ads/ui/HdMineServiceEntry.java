@@ -1,6 +1,7 @@
 package com.fuck.bili.ads.ui;
 
 import android.content.Context;
+import android.os.Handler;
 
 import com.fuck.bili.ads.core.Host;
 import com.fuck.bili.ads.core.NativeHooks;
@@ -19,6 +20,7 @@ public final class HdMineServiceEntry {
     private static final long ITEM_ID = 0x4642414CL;
 
     private static volatile boolean installed;
+    private static volatile int attempts;
 
     private HdMineServiceEntry() {
     }
@@ -32,13 +34,13 @@ public final class HdMineServiceEntry {
             NativeHooks.hookAllMethods("HdMineServiceEntry.onViewCreated", fragment, "onViewCreated",
                     chain -> {
                         Object result = chain.proceed();
-                        inject(chain.getThisObject());
+                        schedule(chain.getThisObject());
                         return result;
                     });
             NativeHooks.hookAllMethods("HdMineServiceEntry.onResume", fragment, "onResume",
                     chain -> {
                         Object result = chain.proceed();
-                        inject(chain.getThisObject());
+                        schedule(chain.getThisObject());
                         return result;
                     });
             hookPageManager(loader);
@@ -83,7 +85,7 @@ public final class HdMineServiceEntry {
     }
 
     private static void inject(Object fragment) {
-        if (fragment == null || installed) {
+        if (fragment == null) {
             return;
         }
         try {
@@ -99,9 +101,7 @@ public final class HdMineServiceEntry {
                     return;
                 }
             }
-            if (items.isEmpty()) {
-                return;
-            }
+            boolean hasOldItems = !items.isEmpty();
             Class<?> itemType = Reflect.findClass(ITEM, fragment.getClass().getClassLoader());
             Object item = Reflect.newInstance(itemType);
             set(item, new String[]{"id", "f102955id"}, ITEM_ID);
@@ -123,16 +123,81 @@ public final class HdMineServiceEntry {
             if (manager != null && base != null) {
                 Reflect.callMethod(manager, "b", base, item);
             }
-            items.add(item);
+            if (hasOldItems) {
+                items.add(item);
+            }
+            int groupIndex = injectIntoMoreServices(fragment, item);
+            if (!hasOldItems && groupIndex < 0) {
+                if (attempts++ < 40) {
+                    postDelayed(() -> inject(fragment), 500L);
+                }
+                return;
+            }
             Object adapter = Reflect.tryGetObjectField(fragment, "mAdapter");
             if (adapter != null) {
                 Reflect.tryCallMethod(adapter, "notifyDataSetChanged");
             }
+            Object adapterV2 = Reflect.tryGetObjectField(fragment, "mAdapterV2");
+            if (adapterV2 != null) {
+                Reflect.tryCallMethod(adapterV2, "notifyDataSetChanged");
+            }
             installed = true;
             FbaRuntime.mark("服务入口", true);
-            FbaLog.i("[HD] 我的页设置入口已注入");
+            FbaLog.i("[HD] 我的页设置入口已注入，旧列表=" + hasOldItems
+                    + "，更多服务分组=" + groupIndex);
         } catch (Throwable error) {
             FbaLog.e("[HD] 我的页设置入口注入失败", error);
+        }
+    }
+
+    /** Injects into the grouped adapter used by the visible HD More Services section. */
+    private static int injectIntoMoreServices(Object fragment, Object item) {
+        Object model = Reflect.tryGetObjectField(fragment, "mNewStyleV2");
+        Object rawGroups = Reflect.tryCallMethod(model, "a");
+        if (!(rawGroups instanceof List)) {
+            return -1;
+        }
+        @SuppressWarnings("unchecked")
+        List<Object> groups = (List<Object>) rawGroups;
+        int fallback = -1;
+        for (int i = 0; i < groups.size(); i++) {
+            Object group = groups.get(i);
+            Object title = Reflect.tryCallMethod(group, "getTitle");
+            Object rawItems = Reflect.tryCallMethod(group, "a");
+            if (!(rawItems instanceof List)) {
+                continue;
+            }
+            @SuppressWarnings("unchecked")
+            List<Object> items = (List<Object>) rawItems;
+            for (Object existing : items) {
+                if (SETTINGS_URI.equals(Reflect.tryGetObjectField(existing, "uri"))) {
+                    return i;
+                }
+            }
+            if (String.valueOf(title).contains("更多服务")) {
+                items.add(item);
+                return i;
+            }
+            if (String.valueOf(title).contains("服务")) {
+                fallback = i;
+            }
+        }
+        // A missing group title is not enough to select an arbitrary service group.
+        return fallback;
+    }
+
+    private static void postDelayed(Runnable action, long delayMs) {
+        Handler handler = FbaRuntime.handler();
+        if (handler != null) {
+            handler.postDelayed(action, delayMs);
+        }
+    }
+
+    private static void schedule(Object fragment) {
+        attempts = 0;
+        inject(fragment);
+        for (int i = 1; i <= 12; i++) {
+            postDelayed(() -> inject(fragment), i * 500L);
         }
     }
 
