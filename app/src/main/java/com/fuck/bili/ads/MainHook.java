@@ -35,6 +35,7 @@ public class MainHook extends XposedModule {
     private static final String PACKAGE_NAME = "tv.danmaku.bili";
     private static final String PACKAGE_NAME_ALIAS = "tv.danmaku.bilj";
     private static final String INTERNATIONAL_PACKAGE_NAME = "com.bilibili.app.in";
+    private static final String HD_PACKAGE_NAME = "tv.danmaku.bilibilihd";
 
     public static boolean isInternational = false;
 
@@ -50,12 +51,14 @@ public class MainHook extends XposedModule {
         final String packageName = param.getPackageName();
         if (!PACKAGE_NAME.equals(packageName)
                 && !INTERNATIONAL_PACKAGE_NAME.equals(packageName)
-                && !PACKAGE_NAME_ALIAS.equals(packageName)) {
+                && !PACKAGE_NAME_ALIAS.equals(packageName)
+                && !HD_PACKAGE_NAME.equals(packageName)) {
             return;
         }
         if (INTERNATIONAL_PACKAGE_NAME.equals(packageName)) {
             isInternational = true;
         }
+        final boolean hd = Host.isHdPackage(packageName);
 
         NativeHooks.init(this);
         FbaLog.init(Host.currentApplication());
@@ -88,14 +91,22 @@ public class MainHook extends XposedModule {
 
         // ---- 不依赖 DexKit 的 hook：立刻装，启动页/弹幕/小视频等功能不等扫描 ----
         install("开屏拦截", () -> BiliSplashSniper.hookEarly(classLoader));
-        install("播放页广告", () -> BiliAdSniper.hook(classLoader));
+        if (!hd) {
+            install("播放页广告", () -> BiliAdSniper.hook(classLoader));
+        } else {
+            install("HD播放页广告", () -> HdAdSniper.hook(classLoader));
+        }
         install("底部导航", () -> BiliBottomNavSniper.hook(classLoader));
         install("抓包", () -> PacketSniffer.hook(classLoader));
         install("关注页广告", () -> FollowingListAdSniper.hook(classLoader));
         install("关注页设置", () -> FollowingTopLeftButton.hook(classLoader));
-        install("小视频", () -> StoryAdSniper.hook(classLoader));
+        if (!hd) {
+            install("小视频", () -> StoryAdSniper.hook(classLoader));
+            install("分享标记", () -> StoryShareMark.hook(classLoader));
+        } else {
+            FbaLog.i("[HD] 无手机版竖屏 Story，跳过小视频与分享 Hook");
+        }
         install("设置入口", () -> MineServiceEntry.hook(classLoader));
-        install("分享标记", () -> StoryShareMark.hook(classLoader));
         install("更新检查", () -> UpdateChecker.startAutoCheck(processName, packageName));
 
         final boolean shouldRunDescCopyFix = !isOldHost(appInfo, packageName);
@@ -160,10 +171,16 @@ public class MainHook extends XposedModule {
         install("基础 Hook", () -> executeOriginalHooks(packageName, classLoader, helper));
         install("广告卡片", () -> BiliCardAdSniper.hook(classLoader, helper));
         install("开屏跳过", () -> BiliSplashSniper.hookDisplayFallback(classLoader, helper));
-        install("视频提及", () -> BiliMentionedSniper.hook(classLoader, helper));
+        if (!Host.isHdPackage(packageName)) {
+            install("视频提及", () -> BiliMentionedSniper.hook(classLoader, helper));
+        }
         install("全局广告", () -> GlobalAdSniperEngine.hook(classLoader, helper));
-        install("大会员预测", () -> VIPPredict.hook(classLoader, helper));
-        install("直播间广告", () -> LiveRoomAdSniper.hook(classLoader, helper));
+        if (!Host.isHdPackage(packageName)) {
+            install("大会员预测", () -> VIPPredict.hook(classLoader, helper));
+        }
+        if (!Host.isHdPackage(packageName)) {
+            install("直播间广告", () -> LiveRoomAdSniper.hook(classLoader, helper));
+        }
         install("免流提示", () -> FreeDataToastSniper.hook(classLoader, helper));
         if (shouldRunDescCopyFix) {
             install("简介复制", () -> descCopyFix(classLoader, helper));
@@ -193,7 +210,7 @@ public class MainHook extends XposedModule {
 
     private static void executeOriginalHooks(String packageName, ClassLoader classLoader,
                                              DexKitHelper helper) {
-        if (!isInternational) {
+        if (!isInternational && !Host.isHdPackage(packageName)) {
             removeAdUnderPlayer(classLoader);
             try {
                 BiliGsonLobotomy.hookPegasusAd(classLoader, helper.PEGASUS_MODEL_CLASS_NAME);

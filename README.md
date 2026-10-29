@@ -6,7 +6,7 @@
 
 **哔哩哔哩 Xposed 去广告模块 · 小视频广告自动跳过**
 
-![version](https://img.shields.io/badge/version-1.2.5-ff2d55)
+![version](https://img.shields.io/badge/version-1.2.6--pre--release-ff2d55)
 [![xposed repo](https://img.shields.io/badge/Xposed%20Repo-listed-00aeec)](https://modules.lsposed.org/module/io.github.fesht377.biliads/)
 ![host](https://img.shields.io/badge/host-9.17.0%20tested-00aeec)
 ![platform](https://img.shields.io/badge/platform-Android%208.0%2B-3ddc84)
@@ -31,6 +31,7 @@
 都收在同一个包里，共用一套设置页、一套日志和一套更新检查——不用为了不同广告位装好几个模块。
 
 > **已适配哔哩哔哩 `9.17.0`（versionCode 9170300）**，在 LSPatch 1.2 下完成小视频、自定义剔除、设置入口与分享标记验证；LSPosed 2.2.1 已在 9.16.1 验证。
+> **HD 适配**：1.2.6 起支持 `tv.danmaku.bilibilihd`（HD 2.0.1 / 2001100）的开屏、信息流、播放页推广、动态过滤、底部导航、设置入口与日志更新检查；HD 不含手机版竖屏 Story，不提供小视频剔除与分享标记。静态逆向适配，尚未真机验证。
 > 更早的 `9.15.0` 同样可用，其它版本的兼容情况见 [兼容性](#兼容性)。
 
 ## 功能
@@ -72,7 +73,7 @@
 |---|---|
 | 设置入口 | 「我的 → 更多服务」新增 `FuckBiliAds`，界面沿用 B 站配色与控件 |
 | 日志 | 文件 + logcat 双写，设置页可查看 / 导出 / 清空 |
-| 更新检查 | 冷启动后查询 GitHub Release，有新版弹窗并提供「前往下载」 |
+| 更新检查 | 冷启动后查询 GitHub Release，有新版弹窗并提供「前往下载」；默认仅检查正式版，测试版需手动开启 |
 | 启动性能 | 非主进程不再扫 dex；缓存按「模块版本 + 宿主指纹」失效；缓存缺失时后台扫描，不阻塞启动 |
 
 ## 安装
@@ -81,7 +82,7 @@
    - **Root**：安装 [Magisk](https://github.com/topjohnwu/Magisk) + [LSPosed](https://github.com/LSPosed/LSPosed)；
    - **无 Root**：用 [LSPatch](https://github.com/LSPosed/LSPatch) 以「本地 / 嵌入式」模式把本模块补进哔哩哔哩；
 2. 从 [Releases](../../releases) 下载 `FuckBiliAds-*.apk` 并安装；
-3. 在 LSPosed 中启用模块，**作用域勾选哔哩哔哩**（`tv.danmaku.bili`）；LSPatch 方式则在打补丁时勾选本模块；
+3. 在 LSPosed 中启用模块，**作用域勾选哔哩哔哩**（`tv.danmaku.bili`；HD 用户勾选 `tv.danmaku.bilibilihd`）；LSPatch 方式则在打补丁时勾选本模块；
 4. 强制停止哔哩哔哩后重新打开。
 
 > **包名**：自 1.0.7 起模块的 ApplicationID 为 `io.github.fesht377.biliads`（旧版为 `com.fuck.bili.ads`）。
@@ -96,6 +97,7 @@
 
 | 哔哩哔哩版本 | versionCode | 状态 |
 |---|---|---|
+| **HD 2.0.1** | 2001100 | 🧪 1.2.6 静态适配：开屏 / 信息流 / 播放页 / 动态 / 设置入口，未真机验证 |
 | **9.17.0** | 9170300 | ✅ **已适配**，LSPatch 实测核心功能 |
 | 9.16.1 | 9161100 | ✅ LSPosed / LSPatch 实测核心功能 |
 | 9.15.0 | 9150300 | ✅ 小视频跳过 / 设置入口 / 分享标记均可用 |
@@ -216,7 +218,14 @@ adb logcat -s FuckBiliAds
 
 完整历史见 [GitHub Releases](https://github.com/feSHt377/FuckBiliAds/releases)；这里只留当前版本要点。
 
-**1.2.5**
+**1.2.6（测试版）**
+
+- 新增 **哔哩哔哩 HD**（`tv.danmaku.bilibilihd`）支持：独立开屏页工厂与展示兜底、HD 我的页设置入口、播放页关联推广拦截。
+- 复用 Pegasus 信息流、关注页动态过滤、底部导航、启动页外观、日志和更新检查；Pegasus 方法按结构匹配。
+- HD 不含手机版竖屏 Story，不加载小视频剔除与分享标记，设置页隐藏这些选项。
+- **自动更新默认只获取正式版**，需要 pre-release 时在「模块更新」手动开启。
+
+## 1.2.5 变更
 
 - 修复更新后第一次启动可能闪出开屏广告：在缓存商业开屏页创建前拦截，直接走宿主无广告退出流程，不再等待广告渲染完成后才跳过。
 - 请求拦截与展示兜底继续保留；`[SPLASH]` 日志可区分缓存页拦截与实际请求命中。

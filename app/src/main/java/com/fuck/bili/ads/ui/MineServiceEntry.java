@@ -6,6 +6,7 @@ import android.os.Looper;
 import android.view.View;
 import android.view.ViewGroup;
 
+import com.fuck.bili.ads.core.Host;
 import com.fuck.bili.ads.core.NativeHooks;
 import com.fuck.bili.ads.core.Reflect;
 
@@ -42,6 +43,10 @@ public final class MineServiceEntry {
     }
 
     public static void hook(ClassLoader classLoader) {
+        if (Host.isHdPackage(FbaRuntime.processName())) {
+            HdMineServiceEntry.hook(classLoader);
+            return;
+        }
         boolean router = true; // routing is handled by the direct click hook
         boolean page = hookMinePage(classLoader);
         FbaRuntime.mark("设置入口", router && page);

@@ -8,6 +8,7 @@ import android.util.Log;
 import android.view.View;
 import android.view.Window;
 
+import com.fuck.bili.ads.core.Host;
 import com.fuck.bili.ads.core.NativeHooks;
 import com.fuck.bili.ads.core.Reflect;
 import com.fuck.bili.ads.ui.FbaLog;
@@ -39,6 +40,7 @@ public final class BiliSplashSniper {
         if (!INSTALLED.compareAndSet(false, true)) return;
         installRequestBlock(classLoader);
         installEarlySplashGate(classLoader);
+        installHdSplashGate(classLoader);
         if (DEBUG_INTERVAL) installDebugIntervals(classLoader);
         installBrandSplashBlock(classLoader);
         installSplashThemeHook(classLoader);
@@ -78,9 +80,29 @@ public final class BiliSplashSniper {
         }
     }
 
+    /** HD's cached page factory returns a Fragment; null follows its no-ad branch. */
+    private static void installHdSplashGate(ClassLoader loader) {
+        try {
+            Class<?> factory = Reflect.findClass("tv.danmaku.bili.ui.splash.ad.page.x", loader);
+            Method create = NativeHooks.method(factory, "a",
+                    Reflect.findClass("tv.danmaku.bili.ui.splash.ad.model.Splash", loader));
+            NativeHooks.hook("BiliSplashSniper.HdCachedPageGate", create, chain -> {
+                FbaLog.i("[SPLASH][HD] 缓存开屏页创建已拦截，走宿主无广告退出流程");
+                return null;
+            });
+            FbaLog.i("[SPLASH][HD] 缓存广告页创建拦截已安装");
+        } catch (Throwable error) {
+            FbaLog.e("[SPLASH][HD] 缓存广告页创建拦截安装失败", error);
+        }
+    }
+
     /** 依赖 DexKit 解析结果的兜底：存量缓存广告的跳过。 */
     public static void hookDisplayFallback(ClassLoader classLoader, DexKitHelper helper) {
-        installDisplayFallback(classLoader, helper);
+        if (Host.isHdPackage(Host.processName())) {
+            installHdDisplayFallback(classLoader);
+        } else {
+            installDisplayFallback(classLoader, helper);
+        }
     }
 
     /** 在 OkHttp 调用链继续执行前返回成功的空响应，不进入后续网络链。 */
@@ -318,6 +340,23 @@ public final class BiliSplashSniper {
             return;
         }
         throw new NoSuchMethodException("zero-argument splash skip: " + preferred);
+    }
+
+    /** HD skips before its business splash view has completed rendering. */
+    private static void installHdDisplayFallback(ClassLoader loader) {
+        try {
+            Class<?> type = Reflect.findClass("tv.danmaku.bili.ui.splash.ad.page.BaseSplash", loader);
+            Method ready = NativeHooks.method(type, "ap");
+            NativeHooks.hook("BiliSplashSniper.HdSplashReady", ready, chain -> {
+                Object splash = chain.getThisObject();
+                FbaLog.i("[SPLASH][HD] 开屏展示兜底触发");
+                Reflect.callMethod(splash, "wo", false);
+                return null;
+            });
+            FbaLog.i("[SPLASH][HD] 展示兜底已安装");
+        } catch (Throwable error) {
+            FbaLog.e("[SPLASH][HD] 展示兜底安装失败", error);
+        }
     }
 
     /**

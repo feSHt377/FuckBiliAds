@@ -186,7 +186,7 @@ public final class FbaPrefs {
 
     /** Include pre-releases in the comparison. */
     public static boolean updatePrerelease() {
-        return getBoolean(KEY_UPDATE_PRERELEASE, true);
+        return getBoolean(KEY_UPDATE_PRERELEASE, false);
     }
 
     public static void setUpdatePrerelease(boolean value) {

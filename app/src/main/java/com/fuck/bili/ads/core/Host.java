@@ -33,6 +33,11 @@ public final class Host {
     }
 
     /** Current process name; empty string when it cannot be resolved. */
+    /** Tablet HD uses different page factories and has no mobile Story implementation. */
+    public static boolean isHdPackage(String packageName) {
+        return "tv.danmaku.bilibilihd".equals(packageName);
+    }
+
     public static String processName() {
         Application application = currentApplication();
         if (application != null && Build.VERSION.SDK_INT >= 28) {

@@ -33,6 +33,7 @@ import android.widget.TextView;
 import android.widget.Toast;
 
 import com.fuck.bili.ads.BuildConfig;
+import com.fuck.bili.ads.core.Host;
 import com.fuck.bili.ads.story.StoryAdFilter;
 import com.fuck.bili.ads.story.StoryAdSniper;
 import com.fuck.bili.ads.story.StoryContentFilter;
@@ -110,6 +111,7 @@ public final class FbaSettings {
             root.addView(scroll, new LinearLayout.LayoutParams(
                     ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
 
+            if (!Host.isHdPackage(Host.processName())) {
             // ---- 小视频 ----
             content.addView(section(context, "小视频", "自动跳过或从播放列表剔除广告", subColor));
             content.addView(switchRow(context, "自动跳过广告",
@@ -140,6 +142,8 @@ public final class FbaSettings {
                     "在小视频分享面板添加入口，将当前条目信息写入日志",
                     FbaPrefs.shareMark(), titleColor, subColor, divider,
                     checked -> FbaPrefs.setShareMark(checked)));
+
+            }
 
             // ---- 启动页 ----
             content.addView(section(context, "启动页", "开屏外观设置，下次启动生效", subColor));

@@ -3,8 +3,8 @@ plugins {
 }
 
 // Version can be overridden from CI: -PversionCode=12 -PversionName=1.2.3
-def appVersionCode = (project.findProperty("versionCode") ?: "10205").toString().toInteger()
-def appVersionName = (project.findProperty("versionName") ?: "1.2.5").toString()
+def appVersionCode = (project.findProperty("versionCode") ?: "10206").toString().toInteger()
+def appVersionName = (project.findProperty("versionName") ?: "1.2.6").toString()
 
 // Release signing material is injected by CI (see .github/workflows/release.yml).
 def ksPath = System.getenv("KEYSTORE_FILE") ?: project.findProperty("KEYSTORE_FILE")

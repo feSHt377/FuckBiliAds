@@ -67,9 +67,24 @@ public class GlobalAdSniperEngine {
 
         try {
             Class<?> parser = Reflect.findClass("com.bilibili.pegasus.request.PegasusGsonParser", classLoader);
-            Method parse = NativeHooks.method(parser,
-                    helper.PEGASUS_SUS_GSON_PARSER_PARSER_METHOD_NAME,
-                    Reflect.findClass("okhttp3.ResponseBody", classLoader));
+            Method parse;
+            if (Host.isHdPackage(Host.processName())) {
+                parse = null;
+                for (Method method : parser.getDeclaredMethods()) {
+                    if (method.getParameterCount() == 1
+                            && method.getParameterTypes()[0].getName().equals("okhttp3.ResponseBody")) {
+                        parse = method;
+                        break;
+                    }
+                }
+                if (parse == null) {
+                    throw new NoSuchMethodException("HD Pegasus parser(ResponseBody)");
+                }
+            } else {
+                parse = NativeHooks.method(parser,
+                        helper.PEGASUS_SUS_GSON_PARSER_PARSER_METHOD_NAME,
+                        Reflect.findClass("okhttp3.ResponseBody", classLoader));
+            }
             NativeHooks.hook("GlobalAdSniperEngine.PegasusParse", parse, chain -> {
                 Object responseBody = chain.getArg(0);
                 Object[] args = null;

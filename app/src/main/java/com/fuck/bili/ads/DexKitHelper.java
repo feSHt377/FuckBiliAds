@@ -4,6 +4,9 @@ import android.os.Handler;
 import android.os.Looper;
 import android.util.Log;
 
+import com.fuck.bili.ads.core.Host;
+import com.fuck.bili.ads.ui.FbaLog;
+
 import org.luckypray.dexkit.DexKitBridge;
 import org.luckypray.dexkit.query.FindClass;
 import org.luckypray.dexkit.query.FindField;
@@ -73,6 +76,10 @@ public class DexKitHelper {
     public final boolean IS_TESTING = BuildConfig.DEBUG;
 
     public void resolve(ApplicationInfo appInfo) {
+        if (Host.isHdPackage(appInfo.packageName)) {
+            resolveHd(appInfo);
+            return;
+        }
         long start = System.currentTimeMillis();
         String cacheKey = cacheKeyFor(appInfo);
         File cacheFile = cacheFileFor(appInfo);
@@ -554,6 +561,60 @@ public class DexKitHelper {
             return cacheKeyFor(appInfo).equals(props.getProperty("cache_key"));
         } catch (Throwable t) {
             return false;
+        }
+    }
+
+    /** HD has no Story and uses a different Pegasus parser method. */
+    private void resolveHd(ApplicationInfo appInfo) {
+        long started = System.currentTimeMillis();
+        // Keep the established cache format: it stores only names, never dex contents.
+        File file = cacheFileFor(appInfo);
+        Properties props = new Properties();
+        String key = cacheKeyFor(appInfo);
+        if (file.exists()) {
+            try (FileInputStream input = new FileInputStream(file)) {
+                props.load(input);
+                if (key.equals(props.getProperty("cache_key"))) {
+                    PEGASUS_SUS_GSON_PARSER_PARSER_METHOD_NAME = props.getProperty(
+                            "PEGASUS_SUS_GSON_PARSER_PARSER_METHOD_NAME", "l");
+                    FbaLog.i("[HD] Pegasus 方法缓存命中: " + PEGASUS_SUS_GSON_PARSER_PARSER_METHOD_NAME);
+                    return;
+                }
+            } catch (Throwable ignored) {
+                // A damaged cache is refreshed below.
+            }
+        }
+        try (DexKitBridge bridge = DexKitBridge.create(appInfo.sourceDir)) {
+            if (bridge == null) {
+                return;
+            }
+            List<MethodData> methods = bridge.findMethod(FindMethod.create()
+                    .searchInClass(bridge.findClass(FindClass.create()
+                            .matcher(ClassMatcher.create().className("com.bilibili.pegasus.request.PegasusGsonParser"))))
+                    .matcher(MethodMatcher.create().paramCount(1).paramTypes("okhttp3.ResponseBody")));
+            if (!methods.isEmpty()) {
+                PEGASUS_SUS_GSON_PARSER_PARSER_METHOD_NAME = methods.get(0).getMethodName();
+            } else {
+                PEGASUS_SUS_GSON_PARSER_PARSER_METHOD_NAME = "l";
+            }
+            props.setProperty("cache_key", key);
+            props.setProperty("PEGASUS_SUS_GSON_PARSER_PARSER_METHOD_NAME",
+                    PEGASUS_SUS_GSON_PARSER_PARSER_METHOD_NAME);
+            file.getParentFile().mkdirs();
+            File tmp = new File(file.getParentFile(), file.getName() + ".tmp");
+            try (FileOutputStream output = new FileOutputStream(tmp)) {
+                props.store(output, "HD Pegasus parser cache");
+            }
+            if (!tmp.renameTo(file)) {
+                //noinspection ResultOfMethodCallIgnored
+                file.delete();
+                //noinspection ResultOfMethodCallIgnored
+                tmp.renameTo(file);
+            }
+            FbaLog.i("[HD] Pegasus 方法定位: " + PEGASUS_SUS_GSON_PARSER_PARSER_METHOD_NAME
+                    + "，耗时 " + (System.currentTimeMillis() - started) + "ms");
+        } catch (Throwable error) {
+            FbaLog.e("[HD] Pegasus 方法定位失败，使用结构回退", error);
         }
     }
 
