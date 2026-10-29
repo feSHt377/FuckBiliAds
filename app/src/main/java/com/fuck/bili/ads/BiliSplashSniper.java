@@ -38,9 +38,44 @@ public final class BiliSplashSniper {
     public static void hookEarly(ClassLoader classLoader) {
         if (!INSTALLED.compareAndSet(false, true)) return;
         installRequestBlock(classLoader);
+        installEarlySplashGate(classLoader);
         if (DEBUG_INTERVAL) installDebugIntervals(classLoader);
         installBrandSplashBlock(classLoader);
         installSplashThemeHook(classLoader);
+    }
+
+    /**
+     * Prevents cached commercial pages from being attached before the module is
+     * injected. Returning null follows the host's existing no-ad exit branch.
+     */
+    private static void installEarlySplashGate(ClassLoader loader) {
+        try {
+            Class<?> manager = Reflect.findClass("tv.danmaku.bili.splash.ad.core.SplashManager", loader);
+            Method factory = null;
+            for (Method method : manager.getDeclaredMethods()) {
+                if (java.lang.reflect.Modifier.isStatic(method.getModifiers())
+                        && method.getParameterTypes().length == 1
+                        && method.getParameterTypes()[0].getName().endsWith("SplashOrder")
+                        && method.getReturnType().getName().endsWith("BaseSplash")) {
+                    factory = method;
+                    break;
+                }
+            }
+            if (factory == null) {
+                throw new NoSuchMethodException("SplashManager commercial page factory");
+            }
+            if (!isCommercialPageFactory(factory)) {
+                throw new IllegalArgumentException("unexpected page factory signature");
+            }
+            NativeHooks.hook("BiliSplashSniper.CachedPageGate", factory, chain -> {
+                Object order = chain.getArg(0);
+                FbaLog.i("[SPLASH] 缓存开屏页创建已拦截，走宿主无广告退出流程");
+                return null;
+            });
+            FbaLog.i("[SPLASH] 缓存广告页创建拦截已安装");
+        } catch (Throwable error) {
+            FbaLog.e("[SPLASH] 缓存广告页创建拦截安装失败", error);
+        }
     }
 
     /** 依赖 DexKit 解析结果的兜底：存量缓存广告的跳过。 */
@@ -226,15 +261,15 @@ public final class BiliSplashSniper {
             Class<?> type = Reflect.findClass(helper.BASE_SPLASH_CLASS_NAME, loader);
             Method target = NativeHooks.method(type, helper.SPLASH_READY_METHOD_NAME, boolean.class);
             NativeHooks.hook("BiliSplashSniper.onSplashReady", target, chain -> {
-                Object result = chain.proceed();
                 Object splash = chain.getThisObject();
                 FbaLog.i("[SPLASH] 缓存开屏进入展示层，准备跳过");
+                Object result = null;
                 Log.d(TAG, "[SplashFallback] ready=" + chain.getArg(0)
                         + ", class=" + splash.getClass().getName()
                         + ", listBlocked=" + LIST_BLOCKED.get()
                         + ", showBlocked=" + SHOW_BLOCKED.get());
                 try {
-                    Reflect.callMethod(splash, helper.SPLASH_SKIP_METHOD_NAME);
+                    callSkipMethod(splash, helper.SPLASH_SKIP_METHOD_NAME);
                     FbaLog.i("[SPLASH] 已调用宿主跳过: " + helper.SPLASH_SKIP_METHOD_NAME);
                     Log.d(TAG, "[SplashSkip] success: " + helper.SPLASH_SKIP_METHOD_NAME);
                 } catch (Throwable first) {
@@ -254,6 +289,35 @@ public final class BiliSplashSniper {
             FbaLog.e("[SPLASH] 缓存展示兜底安装失败: " + error, null);
             Log.d(TAG, "[SplashFallbackInstall] FAILED: " + error);
         }
+    }
+
+    static boolean isCommercialPageFactory(Method method) {
+        return method != null
+                && java.lang.reflect.Modifier.isStatic(method.getModifiers())
+                && method.getParameterTypes().length == 1
+                && method.getParameterTypes()[0].getName().endsWith("SplashOrder")
+                && method.getReturnType().getName().endsWith("BaseSplash");
+    }
+
+    /** Invokes the host's no-argument skip method, or closes via its activity. */
+    private static void callSkipMethod(Object splash, String preferred) throws Throwable {
+        for (Class<?> type = splash.getClass(); type != null; type = type.getSuperclass()) {
+            for (Method method : type.getDeclaredMethods()) {
+                if (method.getParameterCount() == 0 && method.getReturnType() == void.class
+                        && method.getName().equals(preferred)) {
+                    method.setAccessible(true);
+                    method.invoke(splash);
+                    return;
+                }
+            }
+        }
+        Object activity = Reflect.tryCallMethod(splash, "getActivity");
+        if (activity != null) {
+            Reflect.callMethod(activity, "finish");
+            FbaLog.i("[SPLASH] 无参跳过方法不可用，已关闭开屏 Activity");
+            return;
+        }
+        throw new NoSuchMethodException("zero-argument splash skip: " + preferred);
     }
 
     /**
