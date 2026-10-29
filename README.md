@@ -6,7 +6,7 @@
 
 **哔哩哔哩 Xposed 去广告模块 · 小视频广告自动跳过**
 
-![version](https://img.shields.io/badge/version-1.2.7--pre--release-ff2d55)
+![version](https://img.shields.io/badge/version-1.2.8--pre--release-ff2d55)
 [![xposed repo](https://img.shields.io/badge/Xposed%20Repo-listed-00aeec)](https://modules.lsposed.org/module/io.github.fesht377.biliads/)
 ![host](https://img.shields.io/badge/host-9.17.0%20tested-00aeec)
 ![platform](https://img.shields.io/badge/platform-Android%208.0%2B-3ddc84)
@@ -218,7 +218,11 @@ adb logcat -s FuckBiliAds
 
 完整历史见 [GitHub Releases](https://github.com/feSHt377/FuckBiliAds/releases)；这里只留当前版本要点。
 
-**1.2.7（测试版）**
+**1.2.8（测试版）**
+
+- 修复 HD 我的页入口仍可能不显示：HD 判定改为按注入包名而非进程名，入口注入扩展到实际分组列表与旧列表，并拦截真实条目点击回调打开设置。
+
+## 1.2.7 变更（测试版）
 
 - 修复 HD「我的 → 更多服务」没有模块设置入口：同时注入实际展示的 `mNewStyleV2` 分组和旧服务列表，并在异步数据刷新时重试。
 - 保留 HD 独立开屏、播放页与信息流适配；自动更新仍默认仅正式版。

@@ -15,8 +15,22 @@ import java.lang.reflect.Method;
 public final class Host {
 
     private static volatile Application application;
+    private static volatile String packageName;
 
     private Host() {
+    }
+
+    /** Records the injected package; HD gates must not depend on early app context. */
+    public static void setPackageName(String value) {
+        packageName = value;
+    }
+
+    public static String packageName() {
+        return packageName == null ? "" : packageName;
+    }
+
+    public static boolean isHd() {
+        return isHdPackage(packageName);
     }
 
     /** Current host application, or {@code null} if called too early. */

@@ -98,7 +98,7 @@ public final class BiliSplashSniper {
 
     /** 依赖 DexKit 解析结果的兜底：存量缓存广告的跳过。 */
     public static void hookDisplayFallback(ClassLoader classLoader, DexKitHelper helper) {
-        if (Host.isHdPackage(Host.processName())) {
+        if (Host.isHd()) {
             installHdDisplayFallback(classLoader);
         } else {
             installDisplayFallback(classLoader, helper);

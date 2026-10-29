@@ -59,6 +59,7 @@ public class MainHook extends XposedModule {
             isInternational = true;
         }
         final boolean hd = Host.isHdPackage(packageName);
+        Host.setPackageName(packageName);
 
         NativeHooks.init(this);
         FbaLog.init(Host.currentApplication());

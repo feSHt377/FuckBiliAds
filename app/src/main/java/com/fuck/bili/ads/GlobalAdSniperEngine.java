@@ -68,7 +68,7 @@ public class GlobalAdSniperEngine {
         try {
             Class<?> parser = Reflect.findClass("com.bilibili.pegasus.request.PegasusGsonParser", classLoader);
             Method parse;
-            if (Host.isHdPackage(Host.processName())) {
+            if (Host.isHd()) {
                 parse = null;
                 for (Method method : parser.getDeclaredMethods()) {
                     if (method.getParameterCount() == 1

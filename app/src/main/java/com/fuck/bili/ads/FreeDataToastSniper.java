@@ -16,7 +16,7 @@ public class FreeDataToastSniper {
         Log.i(TAG, "开始注册 Hook，loader=" + classLoader);
 
         try {
-            if (Host.isHdPackage(Host.processName())) {
+            if (Host.isHd()) {
                 Class<?> type = Reflect.findClass(
                         "com.bilibili.ship.theseus.united.player.mediaplay.network.NetworkShowToastService", classLoader);
                 int count = 0;

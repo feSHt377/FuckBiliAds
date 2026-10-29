@@ -21,12 +21,14 @@ public final class HdMineServiceEntry {
 
     private static volatile boolean installed;
     private static volatile int attempts;
+    private static final java.util.Set<Class<?>> CLICK_HOOKED =
+            java.util.Collections.newSetFromMap(new java.util.WeakHashMap<Class<?>, Boolean>());
 
     private HdMineServiceEntry() {
     }
 
     public static void hook(ClassLoader loader) {
-        if (!Host.isHdPackage(FbaRuntime.processName())) {
+        if (!Host.isHd()) {
             return;
         }
         try {
@@ -44,6 +46,7 @@ public final class HdMineServiceEntry {
                         return result;
                     });
             hookPageManager(loader);
+            hookDirectItemClick(loader);
             FbaRuntime.mark("设置入口", true);
             FbaLog.i("[HD] 我的页设置入口 Hook 已安装");
         } catch (Throwable error) {
@@ -79,6 +82,33 @@ public final class HdMineServiceEntry {
         }
     }
 
+    /** Intercepts the actual HD item callback, not just registration. */
+    private static void hookDirectItemClick(ClassLoader loader) {
+        try {
+            Class<?> callback = Reflect.findClass(FRAGMENT + "$h", loader);
+            Class<?> item = Reflect.findClass(ITEM, loader);
+            NativeHooks.hookAllMethods("HdMineServiceEntry.DirectItemClick", callback, "a", chain -> {
+                Object clicked = chain.getArg(0);
+                if (clicked != null && SETTINGS_URI.equals(Reflect.tryGetObjectField(clicked, "uri"))) {
+                    Object listener = chain.getThisObject();
+                    Context context = FbaRuntime.context();
+                    Object owner = Reflect.tryGetObjectField(listener, "this$0");
+                    Object activity = Reflect.tryCallMethod(owner, "getActivity");
+                    if (activity instanceof Context) {
+                        context = (Context) activity;
+                    }
+                    FbaLog.i("[HD] 设置项点击，打开模块设置");
+                    FbaSettings.show(context);
+                    return null;
+                }
+                return chain.proceed();
+            });
+            FbaLog.i("[HD] 设置项直接点击回调已安装");
+        } catch (Throwable error) {
+            FbaLog.e("[HD] 设置项直接点击回调安装失败", error);
+        }
+    }
+
     private static Context contextOf(Object fragment) {
         Object activity = Reflect.tryCallMethod(fragment, "getActivity");
         return activity instanceof Context ? (Context) activity : FbaRuntime.context();
@@ -89,6 +119,7 @@ public final class HdMineServiceEntry {
             return;
         }
         try {
+            FbaLog.d("[HD] 菜单注入尝试: " + fragment.getClass().getName());
             Object section = Reflect.tryGetObjectField(fragment, "mSectionListV2");
             if (!(section instanceof List)) {
                 return;
@@ -123,11 +154,13 @@ public final class HdMineServiceEntry {
             if (manager != null && base != null) {
                 Reflect.callMethod(manager, "b", base, item);
             }
-            if (hasOldItems) {
+            int groupIndex = injectIntoMoreServices(fragment, item);
+            // V2 grouped list is what the visible More Services renders; only fall
+            // back to the flat list when no group accepted the entry.
+            if (hasOldItems && groupIndex < 0) {
                 items.add(item);
             }
-            int groupIndex = injectIntoMoreServices(fragment, item);
-            if (!hasOldItems && groupIndex < 0) {
+            if (groupIndex < 0) {
                 if (attempts++ < 40) {
                     postDelayed(() -> inject(fragment), 500L);
                 }
@@ -178,7 +211,7 @@ public final class HdMineServiceEntry {
                 items.add(item);
                 return i;
             }
-            if (String.valueOf(title).contains("服务")) {
+            if (String.valueOf(title).contains("更多服务")) {
                 fallback = i;
             }
         }

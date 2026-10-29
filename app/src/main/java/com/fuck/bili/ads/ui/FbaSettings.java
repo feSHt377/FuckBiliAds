@@ -111,7 +111,7 @@ public final class FbaSettings {
             root.addView(scroll, new LinearLayout.LayoutParams(
                     ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
 
-            if (!Host.isHdPackage(Host.processName())) {
+            if (!Host.isHd()) {
             // ---- 小视频 ----
             content.addView(section(context, "小视频", "自动跳过或从播放列表剔除广告", subColor));
             content.addView(switchRow(context, "自动跳过广告",

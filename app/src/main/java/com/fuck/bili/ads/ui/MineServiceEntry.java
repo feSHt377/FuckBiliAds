@@ -43,7 +43,7 @@ public final class MineServiceEntry {
     }
 
     public static void hook(ClassLoader classLoader) {
-        if (Host.isHdPackage(FbaRuntime.processName())) {
+        if (Host.isHd()) {
             HdMineServiceEntry.hook(classLoader);
             return;
         }
