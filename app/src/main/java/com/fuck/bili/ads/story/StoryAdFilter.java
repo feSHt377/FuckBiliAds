@@ -47,12 +47,12 @@ public final class StoryAdFilter {
     private static final int MAX_PER_PASS = 4;
 
     /** Prefix of the removal toast; the count is filled in at runtime. */
-    private static final String TOAST_REMOVED = "已剔除 %d 条广告！FUCK BILI ADS！";
+    private static final String TOAST_REMOVED = "已剔除 %d 个内容！FUCK BILI ADS！";
     private static final String TOAST_REMOVED_OFFSET =
-            "已剔除 %d 条广告（后%d条）！FUCK BILI ADS！";
+            "已剔除 %d 个内容（后%d条）！FUCK BILI ADS！";
 
     private static final Set<String> HOOKED = new HashSet<>();
-    private static final java.util.Map<String, Long> LAST_BATCH_TOAST = new java.util.HashMap<>();
+    private static final java.util.Map<String, Long> LAST_TYPE_LOG = new java.util.HashMap<>();
 
     private static volatile boolean entryHooked;
     private static volatile long filteredTotal;
@@ -177,13 +177,16 @@ public final class StoryAdFilter {
 
     private static final class FilterOutcome {
         final List<Object> kept;
+        final int[] counts = new int[5];
+        int nearestBehind = -1;
+
         FilterOutcome(List<Object> kept) {
             this.kept = kept;
         }
     }
 
     /**
-     * Copy of {@code src} without ad cards, or {@code null} when nothing has to
+     * Copy of {@code src} without selected cards, or {@code null} when nothing has to
      * change. A batch that would end up empty is kept as-is: the host stops
      * asking for more once the list runs dry, so an empty result would strand
      * the pager on the last card.
@@ -198,24 +201,23 @@ public final class StoryAdFilter {
             return null;
         }
         List<Object> kept = null;
+        FilterOutcome outcome = new FilterOutcome(kept);
         int dropped = 0;
-        int nearestBehind = -1;
         for (int i = 0; i < src.size(); i++) {
             Object item = src.get(i);
             if (shouldRemove(item)) {
                 if (kept == null) {
                     kept = new ArrayList<>(src.subList(0, i));
+                    outcome = new FilterOutcome(kept);
                 }
                 dropped++;
-                int contentBit = StoryContentFilter.match(item, FbaPrefs.storyContentMask());
-                if (contentBit != 0) {
-                    contentFilteredTotal++;
-                    recordType(contentBit);
-                }
+                int bit = isAd(item) ? StoryContentFilter.AD
+                        : StoryContentFilter.match(item, FbaPrefs.storyContentMask());
+                outcome.counts[indexOf(bit)]++;
                 if (baseIndex >= 0 && currentPos >= 0) {
                     int behind = baseIndex + i - currentPos;
-                    if (behind > 0 && (nearestBehind < 0 || behind < nearestBehind)) {
-                        nearestBehind = behind;
+                    if (behind > 0 && (outcome.nearestBehind < 0 || behind < outcome.nearestBehind)) {
+                        outcome.nearestBehind = behind;
                     }
                 }
                 continue;
@@ -228,9 +230,11 @@ public final class StoryAdFilter {
             return null;
         }
         filteredTotal += dropped;
-        notifyRemoved(activity, dropped, "批次 " + src.size() + "→" + kept.size(),
-                nearestBehind);
-        return new FilterOutcome(kept);
+        contentFilteredTotal += totalExceptAd(outcome.counts);
+        logTypes(outcome.counts);
+        notifyRemoved(activity, outcome.counts, "批次 " + src.size()
+                + "→" + outcome.kept.size(), outcome.nearestBehind);
+        return outcome;
     }
 
     /**
@@ -243,14 +247,16 @@ public final class StoryAdFilter {
      * @param source   short, human readable origin, used for the log only
      * @param behind   distance from the current video; -1 when unknown
      */
-    private static void notifyRemoved(Activity activity, int count, String source, int behind) {
+    private static void notifyRemoved(Activity activity, int[] counts, String source, int behind) {
+        int count = total(counts);
         if (count <= 0) {
             return;
         }
         boolean showBehind = FbaPrefs.storyFilterOffset() && behind > 0;
         long total = filteredTotal + prunedTotal;
-        FbaLog.i("[FILTER] 剔除 " + count + " 条广告（" + source
-                + (showBehind ? "，后" + behind + "条" : "") + "），累计 " + total);
+        FbaLog.i("[FILTER] 剔除 " + count + " 个内容（" + source
+                + (showBehind ? "，后" + behind + "条" : "") + "），累计 " + total
+                + "，明细 " + breakdown(counts));
         if (!FbaPrefs.storyFilterToast()) {
             return;
         }
@@ -262,7 +268,8 @@ public final class StoryAdFilter {
             return;
         }
         final Context target = context;
-        final String text = formatRemovalToast(count, behind, showBehind);
+        final String text = formatRemovalToast(count, behind, showBehind)
+                + (FbaPrefs.storyFilterVerbose() ? "\n" + breakdown(counts) : "");
         FbaRuntime.onMain(new Runnable() {
             @Override
             public void run() {
@@ -290,7 +297,9 @@ public final class StoryAdFilter {
     }
 
     public static void debugToast(Activity activity, int count, int behind) {
-        notifyRemoved(activity, count, "调试", behind);
+        int[] counts = new int[5];
+        counts[0] = count;
+        notifyRemoved(activity, counts, "调试", behind);
     }
 
     // ------------------------------------------------------------------ prune
@@ -315,6 +324,7 @@ public final class StoryAdFilter {
             Object adapter = StoryView.adapterOf(recycler);
             int count = StoryView.itemCount(adapter);
             int removed = 0;
+            int[] counts = new int[5];
             int nearestBehind = -1;
             for (int pos = count - 1; pos > currentPos && removed < MAX_PER_PASS; pos--) {
                 Object item = StoryView.findItem(adapter, pos);
@@ -323,10 +333,11 @@ public final class StoryAdFilter {
                 }
                 if (Boolean.TRUE.equals(callRemove(player, pos))) {
                     removed++;
-                    int contentBit = StoryContentFilter.match(item, FbaPrefs.storyContentMask());
-                    if (contentBit != 0) {
+                    int bit = isAd(item) ? StoryContentFilter.AD
+                            : StoryContentFilter.match(item, FbaPrefs.storyContentMask());
+                    counts[indexOf(bit)]++;
+                    if (bit != StoryContentFilter.AD) {
                         contentPrunedTotal++;
-                        recordType(contentBit);
                     }
                     if (FbaPrefs.storyFilterOffset()) {
                         int behind = pos - currentPos;
@@ -338,7 +349,8 @@ public final class StoryAdFilter {
             }
             if (removed > 0) {
                 prunedTotal += removed;
-                notifyRemoved(activity, removed, "存量 pos>" + currentPos, nearestBehind);
+                logTypes(counts);
+                notifyRemoved(activity, counts, "存量 pos>" + currentPos, nearestBehind);
             }
             return removed;
         } catch (Throwable t) {
@@ -421,16 +433,67 @@ public final class StoryAdFilter {
         return isAd(item) || StoryContentFilter.match(item, FbaPrefs.storyContentMask()) != 0;
     }
 
-    /** Coalesces selection changes into one log entry, keeping the UI quiet. */
-    private static void recordType(int bit) {
-        String label = StoryContentFilter.label(bit);
-        long now = System.currentTimeMillis();
-        Long previous;
-        synchronized (LAST_BATCH_TOAST) {
-            previous = LAST_BATCH_TOAST.put(label, now);
+    static int indexOf(int bit) {
+        switch (bit) {
+            case StoryContentFilter.AD:
+                return 0;
+            case StoryContentFilter.LIVE:
+                return 1;
+            case StoryContentFilter.PGC:
+                return 2;
+            case StoryContentFilter.COURSE:
+                return 3;
+            case StoryContentFilter.PREVIEW:
+                return 4;
+            default:
+                return 0;
         }
-        if (previous == null || now - previous > 5000L) {
-            FbaLog.i("[FILTER] 自定义剔除类型: " + label);
+    }
+
+    private static int bitAt(int index) {
+        return 1 << index;
+    }
+
+    private static int total(int[] counts) {
+        int total = 0;
+        for (int count : counts) {
+            total += count;
+        }
+        return total;
+    }
+
+    private static int totalExceptAd(int[] counts) {
+        return total(counts) - counts[0];
+    }
+
+    static String breakdown(int[] counts) {
+        StringBuilder text = new StringBuilder();
+        for (int i = 0; i < counts.length; i++) {
+            if (counts[i] <= 0) {
+                continue;
+            }
+            if (text.length() > 0) {
+                text.append("，");
+            }
+            text.append(StoryContentFilter.label(bitAt(i))).append(" *").append(counts[i]);
+        }
+        return text.toString();
+    }
+
+    private static void logTypes(int[] counts) {
+        for (int i = 1; i < counts.length; i++) {
+            if (counts[i] <= 0) {
+                continue;
+            }
+            String label = StoryContentFilter.label(bitAt(i));
+            long now = System.currentTimeMillis();
+            Long previous;
+            synchronized (LAST_TYPE_LOG) {
+                previous = LAST_TYPE_LOG.put(label, now);
+            }
+            if (previous == null || now - previous > 5000L) {
+                FbaLog.i("[FILTER] 自定义剔除类型: " + label + " *" + counts[i]);
+            }
         }
     }
 

@@ -6,9 +6,9 @@
 
 **哔哩哔哩 Xposed 去广告模块 · 小视频广告自动跳过**
 
-![version](https://img.shields.io/badge/version-1.2.3--pre--release-ff2d55)
+![version](https://img.shields.io/badge/version-1.2.4--pre--release-ff2d55)
 [![xposed repo](https://img.shields.io/badge/Xposed%20Repo-listed-00aeec)](https://modules.lsposed.org/module/io.github.fesht377.biliads/)
-![host](https://img.shields.io/badge/host-9.16.1%20tested-00aeec)
+![host](https://img.shields.io/badge/host-9.17.0%20tested-00aeec)
 ![platform](https://img.shields.io/badge/platform-Android%208.0%2B-3ddc84)
 ![framework](https://img.shields.io/badge/LSPosed%20%2F%20LSPatch-API%20102-3ddc84)
 
@@ -30,7 +30,7 @@
 **定位：综合集成型模块。** 开屏、信息流、播放页、直播间、小视频、弹幕这几条链路的去广告能力
 都收在同一个包里，共用一套设置页、一套日志和一套更新检查——不用为了不同广告位装好几个模块。
 
-> **最高实测宿主版本：哔哩哔哩 `9.16.1`（versionCode 9161100）**，在 LSPosed 2.2.1 与 LSPatch 1.2 下均已验证。
+> **已适配哔哩哔哩 `9.17.0`（versionCode 9170300）**，在 LSPatch 1.2 下完成小视频、自定义剔除、设置入口与分享标记验证；LSPosed 2.2.1 已在 9.16.1 验证。
 > 更早的 `9.15.0` 同样可用，其它版本的兼容情况见 [兼容性](#兼容性)。
 
 ## 功能
@@ -96,13 +96,14 @@
 
 | 哔哩哔哩版本 | versionCode | 状态 |
 |---|---|---|
-| **9.16.1** | 9161100 | ✅ **最高实测版本**，当前开发与验证基线 |
+| **9.17.0** | 9170300 | ✅ **已适配**，LSPatch 实测核心功能 |
+| 9.16.1 | 9161100 | ✅ LSPosed / LSPatch 实测核心功能 |
 | 9.15.0 | 9150300 | ✅ 小视频跳过 / 设置入口 / 分享标记均可用 |
 | 9.14 及更早 | — | ⚠️ 未实测，其余广告位按 9.15 的类名定位，可能失效 |
-| 9.17 及更新 | — | ❓ 未验证，宿主混淆重排后部分功能可能失效 |
+| 9.18 及更新 | — | ❓ 未验证，宿主混淆重排后部分功能可能失效 |
 
 小视频跳过、设置入口、分享标记三项已改为**按结构匹配**（方法签名 / 字段组合 / 适配器内容），
-不依赖混淆后的类名，因此在 9.15 → 9.16.1 之间保持可用；其余广告位仍由 DexKit 按类名特征定位，
+不依赖混淆后的类名，因此在 9.15 → 9.17.0 之间保持可用；其余广告位仍由 DexKit 按类名特征定位，
 宿主大版本更新后可能需要重新适配。
 
 ### 运行环境
@@ -162,7 +163,7 @@ adb logcat -s FuckBiliAds
 | 运行诊断 | Hook 安装状态、小视频扫描、广告剔除统计、日志文件状态 |
 | 关于模块 | 模块版本、宿主版本、小视频 Hook、日志保存路径 |
 
-日志落在宿主私有目录 `files/fuckbiliads/events.log`（512 KB 滚动），同时输出到 logcat：
+日志落在宿主私有目录 `files/fuckbiliads/events.log`（最大 100 KB，写满后覆盖旧内容，仅保留最新日志），同时输出到 logcat：
 
 ```bash
 adb logcat -s FuckBiliAds
@@ -215,11 +216,12 @@ adb logcat -s FuckBiliAds
 
 完整历史见 [GitHub Releases](https://github.com/feSHt377/FuckBiliAds/releases)；这里只留当前版本要点。
 
-**1.2.3（测试版）**
+**1.2.4（测试版）**
 
-- 「小视频」新增 **自定义剔除内容** 可展开多选组件，与广告剔除共用入口及提示。
-- 可选屏蔽 **直播推荐 / 影视与番剧 / 课程 / 充电与预览视频**，全部默认关闭，当前播放条目不移除。
-- 使用稳定的 `goto` 语义字段判定，区分 `vertical_live` 与商业直播；页面诊断同步显示类型。
+- 标注已适配 **哔哩哔哩 9.17.0**（LSPatch 实测核心功能）。
+- 合并剔除总开关与多选：广告默认勾选，可选直播、影视/番剧、课程、充电/预览视频；关闭总开关后不执行任何列表剔除。
+- 播报改为「已剔除 N 个内容」；可开启详细播报，显示「广告 *1，直播 *2」等分类数量。
+- 日志文件最大 **100 KB**，写满覆盖旧内容；补充 `[SPLASH]` 开屏请求与展示兜底诊断。
 
 ## 构建
 

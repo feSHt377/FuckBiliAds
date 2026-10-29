@@ -6,11 +6,13 @@ package com.fuck.bili.ads.story;
  */
 public final class StoryContentFilter {
 
-    public static final int LIVE = 1;
-    public static final int PGC = 1 << 1;
-    public static final int COURSE = 1 << 2;
-    public static final int PREVIEW = 1 << 3;
-    public static final int ALL = LIVE | PGC | COURSE | PREVIEW;
+    public static final int AD = 1;
+    public static final int LIVE = 1 << 1;
+    public static final int PGC = 1 << 2;
+    public static final int COURSE = 1 << 3;
+    public static final int PREVIEW = 1 << 4;
+    public static final int ALL = AD | LIVE | PGC | COURSE | PREVIEW;
+    public static final int DEFAULT = AD;
 
     private StoryContentFilter() {
     }
@@ -40,8 +42,10 @@ public final class StoryContentFilter {
 
     public static String label(int bit) {
         switch (bit) {
+            case AD:
+                return "广告";
             case LIVE:
-                return "直播推荐";
+                return "直播";
             case PGC:
                 return "影视/番剧";
             case COURSE:

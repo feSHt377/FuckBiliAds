@@ -29,8 +29,11 @@ public final class FbaLog {
     private static final String FILE = "events.log";
     private static final String ROTATED = "events.log.1";
 
-    /** Keep the file small: the viewer only ever shows the tail. */
-    private static final long MAX_BYTES = 512 * 1024L;
+    /**
+     * Single bounded file: once full, replace its beginning with the newest tail.
+     * No rotated file is used, so historical entries cannot exceed this budget.
+     */
+    static final long MAX_BYTES = 100 * 1024L;
     private static final int MAX_READ_BYTES = 256 * 1024;
     private static final int MEMORY_LINES = 500;
 
@@ -90,15 +93,7 @@ public final class FbaLog {
                     return;
                 }
                 File file = new File(dir, FILE);
-                if (file.length() > MAX_BYTES) {
-                    File old = new File(dir, ROTATED);
-                    if (old.exists()) {
-                        //noinspection ResultOfMethodCallIgnored
-                        old.delete();
-                    }
-                    //noinspection ResultOfMethodCallIgnored
-                    file.renameTo(old);
-                }
+                trimToBudget(file, MAX_BYTES);
                 out = new FileOutputStream(file, true);
                 out.write((line + "\n").getBytes(UTF8));
                 fileOk = true;
@@ -112,6 +107,54 @@ public final class FbaLog {
         }
     }
 
+    /** Rewrites one file, retaining only the newest bytes within the byte budget. */
+    static void trimToBudget(File file, long maxBytes) throws Exception {
+        if (file == null || !file.exists() || file.length() <= maxBytes) {
+            return;
+        }
+        FileInputStream input = null;
+        FileOutputStream output = null;
+        File tmp = new File(file.getParentFile(), file.getName() + ".tmp");
+        try {
+            input = new FileInputStream(file);
+            long skip = file.length() - maxBytes;
+            long remaining = skip;
+            while (remaining > 0) {
+                long stepped = input.skip(remaining);
+                if (stepped <= 0) {
+                    if (input.read() < 0) {
+                        break;
+                    }
+                    stepped = 1;
+                }
+                remaining -= stepped;
+            }
+            output = new FileOutputStream(tmp, false);
+            byte[] buffer = new byte[8192];
+            int read;
+            while ((read = input.read(buffer)) > 0) {
+                output.write(buffer, 0, read);
+            }
+            output.getFD().sync();
+            close(input);
+            input = null;
+            close(output);
+            output = null;
+            if (!tmp.renameTo(file)) {
+                //noinspection ResultOfMethodCallIgnored
+                file.delete();
+                if (!tmp.renameTo(file)) {
+                    throw new java.io.IOException("log trim rename failed");
+                }
+            }
+        } finally {
+            close(input);
+            close(output);
+            //noinspection ResultOfMethodCallIgnored
+            tmp.delete();
+        }
+    }
+
     /** Persistent log file (tail-truncated), newest last. */
     public static String read() {
         Context ctx = FbaRuntime.context();
@@ -119,9 +162,7 @@ public final class FbaLog {
             return "";
         }
         synchronized (LOCK) {
-            String current = readFile(new File(new File(ctx.getFilesDir(), DIR), ROTATED), false);
-            String latest = readFile(new File(new File(ctx.getFilesDir(), DIR), FILE), true);
-            String all = current.isEmpty() ? latest : current + latest;
+            String all = readFile(new File(new File(ctx.getFilesDir(), DIR), FILE), true);
             if (all.length() > MAX_READ_BYTES) {
                 return all.substring(all.length() - MAX_READ_BYTES);
             }

@@ -10,6 +10,7 @@ import android.view.ViewGroup;
 import androidx.recyclerview.widget.RecyclerView;
 
 import com.fuck.bili.ads.core.Host;
+import com.fuck.bili.ads.ui.FbaLog;
 import com.fuck.bili.ads.core.NativeHooks;
 import com.fuck.bili.ads.core.Reflect;
 
@@ -167,7 +168,8 @@ public class GlobalAdSniperEngine {
                     int count = clearSplashList(result);
                     if (count > 0) {
                         splashRemoved.addAndGet(count);
-                        Log.d(TAG, "[SplashFilter] cleared=" + count + ", result=" + actual);
+                        FbaLog.i("[SPLASH] 解析层清空开屏列表 " + count + " 条");
+                    Log.d(TAG, "[SplashFilter] cleared=" + count + ", result=" + actual);
                         if (IS_TESTING) Log.d(TAG, "[SplashParseStack]\n"
                                 + Log.getStackTraceString(new Throwable("Splash parsed")));
                     }

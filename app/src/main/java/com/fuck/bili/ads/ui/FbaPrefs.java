@@ -23,6 +23,7 @@ public final class FbaPrefs {
     private static final String KEY_STORY_FILTER_TOAST = "story_filter_toast";
     private static final String KEY_STORY_FILTER_OFFSET = "story_filter_offset";
     private static final String KEY_STORY_CONTENT_MASK = "story_content_mask";
+    private static final String KEY_STORY_FILTER_VERBOSE = "story_filter_verbose";
     private static final String KEY_VERBOSE = "verbose";
     private static final String KEY_SHARE_MARK = "share_mark";
     private static final String KEY_SPLASH_THEME = "splash_theme";
@@ -106,12 +107,21 @@ public final class FbaPrefs {
 
     /** Additional non-ad story types selected by the user; zero disables content filtering. */
     public static int storyContentMask() {
-        long value = getLong(KEY_STORY_CONTENT_MASK, 0L);
+        long value = getLong(KEY_STORY_CONTENT_MASK, 1L);
         return (int) (value & 0x7fffffffL);
     }
 
     public static void setStoryContentMask(int value) {
         putLong(KEY_STORY_CONTENT_MASK, value & 0x7fffffffL);
+    }
+
+    /** Show the count per selected type in the removal toast. */
+    public static boolean storyFilterVerbose() {
+        return getBoolean(KEY_STORY_FILTER_VERBOSE, false);
+    }
+
+    public static void setStoryFilterVerbose(boolean value) {
+        putBoolean(KEY_STORY_FILTER_VERBOSE, value);
     }
 
     public static boolean verbose() {

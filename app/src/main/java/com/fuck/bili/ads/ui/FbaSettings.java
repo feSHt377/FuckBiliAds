@@ -120,17 +120,17 @@ public final class FbaSettings {
                     "自动跳过后显示「检测到广告，已跳过」Toast",
                     FbaPrefs.storyToast(), titleColor, subColor, divider,
                     checked -> FbaPrefs.setStoryToast(checked)));
-            content.addView(switchRow(context, "从列表剔除广告 · 实验",
-                    "广告不进入播放列表；不可用时仍按上方设置自动跳过",
-                    FbaPrefs.storyFilter(), titleColor, subColor, divider,
-                    checked -> FbaPrefs.setStoryFilter(checked)));
+            content.addView(contentFilterGroup(context, titleColor, subColor, divider));
             content.addView(switchRow(context, "剔除时显示提示",
-                    "剔除广告后通过 Toast 显示本次剔除数量",
+                    "剔除内容后通过 Toast 显示本次剔除总数",
                     FbaPrefs.storyFilterToast(), titleColor, subColor, divider,
                     checked -> FbaPrefs.setStoryFilterToast(checked)));
-            content.addView(contentFilterGroup(context, titleColor, subColor, divider));
-            content.addView(switchRow(context, "提示中显示广告位置",
-                    "在剔除提示后追加「（后 N 条）」；默认关闭",
+            content.addView(switchRow(context, "显示详细剔除内容",
+                    "在提示中追加各类型数量，例如「广告 *1，直播 *2」；默认关闭",
+                    FbaPrefs.storyFilterVerbose(), titleColor, subColor, divider,
+                    checked -> FbaPrefs.setStoryFilterVerbose(checked)));
+            content.addView(switchRow(context, "提示中显示内容位置",
+                    "在剔除提示后追加距当前内容的「（后 N 条）」；默认关闭",
                     FbaPrefs.storyFilterOffset(), titleColor, subColor, divider,
                     checked -> FbaPrefs.setStoryFilterOffset(checked)));
 
@@ -194,8 +194,8 @@ public final class FbaSettings {
                     titleColor, subColor, divider, v -> testToast(context)));
             content.addView(actionRow(context, "测试广告剔除提示",
                     FbaPrefs.storyFilterOffset()
-                            ? "模拟「已剔除 3 条广告（后 3 条）」，不修改播放列表"
-                            : "模拟「已剔除 3 条广告」，不修改播放列表",
+                            ? "模拟「已剔除 3 个内容（后 3 条）」，不修改播放列表"
+                            : "模拟「已剔除 3 个内容」，不修改播放列表",
                     titleColor, subColor, divider,
                     v -> StoryAdFilter.debugToast(activityOf(context), 3, 3)));
             content.addView(actionRow(context, "播报模块加载状态",
@@ -316,17 +316,32 @@ public final class FbaSettings {
         summary.setTextColor(subColor);
         summary.setPadding(dp(context, 16), dp(context, 2), dp(context, 16), dp(context, 8));
 
-        View header = row(context, "自定义剔除内容", null, arrow,
+        View header = row(context, "自定义剔除内容", "展开后选择要从竖屏列表剔除的类型", arrow,
                 titleColor, subColor, divider, null);
         group.addView(header);
         group.addView(summary);
         group.addView(options);
 
-        final int[] bits = {StoryContentFilter.LIVE, StoryContentFilter.PGC,
-                StoryContentFilter.COURSE, StoryContentFilter.PREVIEW};
-        final String[] labels = {"直播推荐", "影视 / 番剧", "课程", "充电 / 预览视频"};
-        final String[] descriptions = {"vertical_live", "vertical_pgc",
+        final int[] bits = {StoryContentFilter.AD, StoryContentFilter.LIVE,
+                StoryContentFilter.PGC, StoryContentFilter.COURSE, StoryContentFilter.PREVIEW};
+        final String[] labels = {"广告（默认）", "直播推荐", "影视 / 番剧", "课程", "充电 / 预览视频"};
+        final String[] descriptions = {"adInfo.feedIsAd", "vertical_live", "vertical_pgc",
                 "vertical_course", "vertical_preview_av"};
+
+        Switch master = new Switch(context);
+        master.setThumbTintList(ColorStateList.valueOf(ACCENT));
+        master.setTrackTintList(ColorStateList.valueOf(0x66FB7299));
+        master.setChecked(FbaPrefs.storyFilter());
+        master.setOnCheckedChangeListener((button, checked) -> {
+            FbaPrefs.setStoryFilter(checked);
+            updateFilterState(master, options, summary);
+            FbaLog.i("pref 从列表剔除广告及所选内容 = " + checked);
+        });
+        View masterRow = row(context, "从列表剔除广告及所选内容 · 实验",
+                "开启后按下方选择过滤竖屏推荐；广告默认勾选。关闭后保留自动跳过，所选类型不移除",
+                master, titleColor, subColor, divider, null);
+        group.addView(masterRow, 0);
+
         for (int i = 0; i < bits.length; i++) {
             final int bit = bits[i];
             CheckBox check = new CheckBox(context);
@@ -339,14 +354,16 @@ public final class FbaSettings {
             check.setOnCheckedChangeListener((button, checked) -> {
                 int mask = FbaPrefs.storyContentMask();
                 FbaPrefs.setStoryContentMask(checked ? mask | bit : mask & ~bit);
-                summary.setText(contentFilterSummary());
+                if (master.isChecked()) {
+                    summary.setText(contentFilterSummary());
+                }
                 FbaLog.i("pref 自定义剔除内容 = " + contentFilterSummary());
             });
             options.addView(check);
         }
 
         TextView note = new TextView(context);
-        note.setText("所选类型与广告一并通过「从列表剔除广告」处理；全部默认不勾选，当前正在播放的条目不会被移除。");
+        note.setText("除广告外的类型默认不勾选；当前正在播放的条目不会被移除。");
         note.setTextSize(TypedValue.COMPLEX_UNIT_SP, 11);
         note.setTextColor(subColor);
         note.setPadding(dp(context, 16), dp(context, 4), dp(context, 16), dp(context, 12));
@@ -360,17 +377,18 @@ public final class FbaSettings {
             arrow.setText(expand ? "⌃" : "⌄");
         });
         arrow.setText("⌄");
+        updateFilterState(master, options, summary);
         return group;
     }
 
     private static String contentFilterSummary() {
         int mask = FbaPrefs.storyContentMask();
         if (mask == 0) {
-            return "未选择额外类型，仅剔除广告 · 点击展开";
+            return "广告 · 点击展开选择更多类型";
         }
         StringBuilder text = new StringBuilder("已选 ");
         int count = 0;
-        int[] bits = {StoryContentFilter.LIVE, StoryContentFilter.PGC,
+        int[] bits = {StoryContentFilter.AD, StoryContentFilter.LIVE, StoryContentFilter.PGC,
                 StoryContentFilter.COURSE, StoryContentFilter.PREVIEW};
         for (int bit : bits) {
             if ((mask & bit) != 0) {
@@ -381,6 +399,23 @@ public final class FbaSettings {
             }
         }
         return text.append(" · 点击修改").toString();
+    }
+
+    private static void updateFilterState(Switch master, ViewGroup options, TextView summary) {
+        boolean enabled = master.isChecked();
+        options.setAlpha(enabled ? 1f : 0.45f);
+        int count = options.getChildCount();
+        for (int i = 0; i < count; i++) {
+            View child = options.getChildAt(i);
+            if (child instanceof CheckBox) {
+                child.setEnabled(enabled);
+            }
+        }
+        if (!enabled) {
+            summary.setText("已关闭 · 所选内容不会从列表剔除");
+        } else {
+            summary.setText(contentFilterSummary());
+        }
     }
 
     private interface OnSwitch {

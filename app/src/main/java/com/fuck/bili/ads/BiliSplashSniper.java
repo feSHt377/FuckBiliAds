@@ -10,6 +10,7 @@ import android.view.Window;
 
 import com.fuck.bili.ads.core.NativeHooks;
 import com.fuck.bili.ads.core.Reflect;
+import com.fuck.bili.ads.ui.FbaLog;
 import com.fuck.bili.ads.ui.FbaPrefs;
 
 import java.lang.reflect.Method;
@@ -133,6 +134,7 @@ public final class BiliSplashSniper {
                             Reflect.callMethod(builder, "body", body);
                             Object response = Reflect.callMethod(builder, "build");
                             long count = (path.endsWith("/list") ? LIST_BLOCKED : SHOW_BLOCKED).incrementAndGet();
+                            FbaLog.i("[SPLASH] 拦截开屏请求 " + path);
                             Log.d(TAG, "[SplashBlock] BLOCKED " + path + ", count=" + count
                                     + ", HTTP=200, emptyResponse=true, networkSkipped=true");
                             return response;
@@ -156,10 +158,12 @@ public final class BiliSplashSniper {
                 }
                 return chain.proceed();
             });
+            FbaLog.i("[SPLASH] 请求拦截已安装: /x/v2/splash/list, /x/v2/splash/show");
             Log.d(TAG, "[SplashBlockInstall] installed via OkHttpClient.Builder.build"
                     + ", interface=" + interceptorType.getName() + ", chainInterface=" + chainType.getName()
                     + ", targets=/x/v2/splash/list,/x/v2/splash/show, debugInterval=" + DEBUG_INTERVAL);
         } catch (Throwable error) {
+            FbaLog.e("[SPLASH] 请求拦截安装失败", error);
             Log.d(TAG, "[SplashBlockInstall] FAILED: " + Log.getStackTraceString(error));
         }
     }
@@ -224,12 +228,14 @@ public final class BiliSplashSniper {
             NativeHooks.hook("BiliSplashSniper.onSplashReady", target, chain -> {
                 Object result = chain.proceed();
                 Object splash = chain.getThisObject();
+                FbaLog.i("[SPLASH] 缓存开屏进入展示层，准备跳过");
                 Log.d(TAG, "[SplashFallback] ready=" + chain.getArg(0)
                         + ", class=" + splash.getClass().getName()
                         + ", listBlocked=" + LIST_BLOCKED.get()
                         + ", showBlocked=" + SHOW_BLOCKED.get());
                 try {
                     Reflect.callMethod(splash, helper.SPLASH_SKIP_METHOD_NAME);
+                    FbaLog.i("[SPLASH] 已调用宿主跳过: " + helper.SPLASH_SKIP_METHOD_NAME);
                     Log.d(TAG, "[SplashSkip] success: " + helper.SPLASH_SKIP_METHOD_NAME);
                 } catch (Throwable first) {
                     try {
@@ -241,9 +247,11 @@ public final class BiliSplashSniper {
                 }
                 return result;
             });
+            FbaLog.i("[SPLASH] 缓存展示兜底已安装");
             Log.d(TAG, "[SplashFallbackInstall] installed: " + helper.BASE_SPLASH_CLASS_NAME
                     + "." + helper.SPLASH_READY_METHOD_NAME);
         } catch (Throwable error) {
+            FbaLog.e("[SPLASH] 缓存展示兜底安装失败: " + error, null);
             Log.d(TAG, "[SplashFallbackInstall] FAILED: " + error);
         }
     }
@@ -272,6 +280,7 @@ public final class BiliSplashSniper {
                                 if (!brand && lower.contains("splash")) {
                                     long seen = BRAND_SEEN.incrementAndGet();
                                     if (seen <= 20) {
+                                        FbaLog.i("[SPLASH] 页面 Fragment: " + className);
                                         Log.d(TAG, "[SplashSeen] fragment " + className);
                                     }
                                 }
@@ -322,6 +331,7 @@ public final class BiliSplashSniper {
                             }
                             long seen = BRAND_SEEN.incrementAndGet();
                             if (seen <= 20) {
+                                FbaLog.i("[SPLASH] 页面 Activity: " + name);
                                 Log.d(TAG, "[SplashSeen] activity " + name);
                             }
                         } catch (Throwable ignore) {
