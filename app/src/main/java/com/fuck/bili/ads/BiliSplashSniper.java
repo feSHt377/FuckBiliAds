@@ -34,6 +34,7 @@ public final class BiliSplashSniper {
     private static final AtomicLong LIST_BLOCKED = new AtomicLong();
     private static final AtomicLong SHOW_BLOCKED = new AtomicLong();
     private static final AtomicLong BRAND_HIDDEN = new AtomicLong();
+    private static final AtomicLong AD_PAGE_HIDDEN = new AtomicLong();
     private static final AtomicLong BRAND_SEEN = new AtomicLong();
 
     public static void hook(ClassLoader classLoader, DexKitHelper helper) {
@@ -442,6 +443,20 @@ public final class BiliSplashSniper {
                                     }
                                 }
                                 if (!brand) {
+                                    // 2.0.1 与 2.5.1 是两套开屏实现（ui.splash.ad / splash.ad），
+                                    // 类名一变工厂钩子就挂空，这里按包前缀兜底：直接不画广告页。
+                                    boolean adPage = className.startsWith("tv.danmaku.bili.splash.ad.page.")
+                                            || className.startsWith("tv.danmaku.bili.ui.splash.ad.page.");
+                                    if (adPage && FbaPrefs.blockSplash()) {
+                                        Object pageView = Reflect.tryCallMethod(self, "getView");
+                                        if (pageView instanceof View) {
+                                            ((View) pageView).setVisibility(View.GONE);
+                                            long hidden = AD_PAGE_HIDDEN.incrementAndGet();
+                                            if (hidden <= 5) {
+                                                FbaLog.i("[SPLASH] 隐藏广告开屏页 " + className);
+                                            }
+                                        }
+                                    }
                                     return result;
                                 }
                                 // 默认不跳过：不少用户就是用品牌开屏来看个性化动画的。
@@ -491,6 +506,20 @@ public final class BiliSplashSniper {
                                 FbaLog.i("[SPLASH] 页面 Activity: " + name);
                                 Log.d(TAG, "[SplashSeen] activity " + name);
                             }
+                            // 热开屏（HotSplashActivity）是独立 Activity，2.5.1 里改到了
+                            // splash.ad.page 包下；缓存素材同样绕过请求拦截，直接结束它。
+                            if (name.endsWith("HotSplashActivity") && FbaPrefs.blockSplash()
+                                    && self instanceof Activity) {
+                                final Activity hot = (Activity) self;
+                                hot.getWindow().getDecorView().postDelayed(() -> {
+                                    try {
+                                        hot.finish();
+                                        FbaLog.i("[SPLASH] 关闭热开屏 " + name);
+                                    } catch (Throwable ignore) {
+                                        // 已经结束
+                                    }
+                                }, 300L);
+                            }
                         } catch (Throwable ignore) {
                             // 不打断宿主
                         }
@@ -516,7 +545,9 @@ public final class BiliSplashSniper {
                         return result;
                     }
                     String name = self.getClass().getName();
-                    if (!name.endsWith("SplashShellActivity") && !name.endsWith("MainActivityV2")) {
+                    // 只对独立的开屏 Activity 生效。MainActivityV2 是宿主主界面（HD 与手机都用它），
+                    // 在它上面改窗口背景/状态栏标记会把布局顶下去，表现为顶部白条 + 整体偏移。
+                    if (!name.endsWith("SplashShellActivity")) {
                         return result;
                     }
                     applySplashTheme((Activity) self);

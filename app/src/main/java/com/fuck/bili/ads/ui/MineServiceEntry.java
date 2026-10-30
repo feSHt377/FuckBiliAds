@@ -16,7 +16,7 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * Adds the module entry to 鎴戠殑 鈫?鏇村鏈嶅姟.
+ * Adds the module entry to 我的 -> 更多服务.
  *
  * <p>The page is server-driven: {@code MenuGroup} cards carry a list of
  * {@code MenuGroup.Item} (title + icon + uri). Appending one item to the right
@@ -49,7 +49,7 @@ public final class MineServiceEntry {
         }
         boolean router = true; // routing is handled by the direct click hook
         boolean page = hookMinePage(classLoader);
-        FbaRuntime.mark("璁剧疆鍏ュ彛", router && page);
+        FbaRuntime.mark("设置入口", router && page);
     }
 
     private static boolean hookMinePage(ClassLoader classLoader) {
@@ -111,7 +111,7 @@ public final class MineServiceEntry {
             if (ensure(adapter, true)) {
                 if (!injectedOnce) {
                     injectedOnce = true;
-                    FbaRuntime.mark("鏈嶅姟鍏ュ彛", true);
+                    FbaRuntime.mark("服务入口", true);
                     FbaLog.i("mine entry injected");
                 }
             }
@@ -428,14 +428,14 @@ public final class MineServiceEntry {
             String title = String.valueOf(field(group, "title"));
             for (Object item : itemsOf(group)) {
                 String itemTitle = String.valueOf(field(item, "title"));
-                if (itemTitle.contains("鏇村鏈嶅姟")) {
+                if (itemTitle.contains("更多服务")) {
                     return i;
                 }
             }
-            if (title.contains("鏇村鏈嶅姟")) {
+            if (title.contains("更多服务")) {
                 return i;
             }
-            if (i > 0 && title.contains("鏈嶅姟")) {
+            if (i > 0 && title.contains("服务")) {
                 fallback = i;
             }
         }

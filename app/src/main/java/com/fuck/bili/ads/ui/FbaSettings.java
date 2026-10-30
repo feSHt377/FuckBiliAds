@@ -138,37 +138,36 @@ public final class FbaSettings {
                     checked -> FbaPrefs.setBlockFollow(checked)));
 
             if (!Host.isHd()) {
-            // ---- 小视频 ----
-            content.addView(section(context, "小视频", "自动跳过或从播放列表剔除广告", subColor));
-            content.addView(switchRow(context, "自动跳过广告",
+            // ---- 小视频广告（并入广告拦截，可展开）----
+            LinearLayout storyWrap = expandableSection(context, "小视频广告",
+                    "自动跳过或在播放列表里剔除，点击展开", titleColor, subColor);
+            LinearLayout storyBody = (LinearLayout) storyWrap.getTag();
+            content.addView(storyWrap);
+            storyBody.addView(switchRow(context, "自动跳过广告",
                     "检测到当前条目为广告时，自动滑动到下一条",
                     FbaPrefs.storySkip(), titleColor, subColor, divider,
                     checked -> FbaPrefs.setStorySkip(checked)));
-            content.addView(switchRow(context, "跳过时显示提示",
+            storyBody.addView(switchRow(context, "跳过时显示提示",
                     "自动跳过后显示「检测到广告，已跳过」Toast",
                     FbaPrefs.storyToast(), titleColor, subColor, divider,
                     checked -> FbaPrefs.setStoryToast(checked)));
-            content.addView(contentFilterGroup(context, titleColor, subColor, divider));
-            content.addView(switchRow(context, "剔除时显示提示",
+            storyBody.addView(contentFilterGroup(context, titleColor, subColor, divider));
+            storyBody.addView(switchRow(context, "剔除时显示提示",
                     "剔除内容后通过 Toast 显示本次剔除总数",
                     FbaPrefs.storyFilterToast(), titleColor, subColor, divider,
                     checked -> FbaPrefs.setStoryFilterToast(checked)));
-            content.addView(switchRow(context, "显示详细剔除内容",
+            storyBody.addView(switchRow(context, "显示详细剔除内容",
                     "在提示中追加各类型数量，例如「广告 *1，直播 *2」；默认关闭",
                     FbaPrefs.storyFilterVerbose(), titleColor, subColor, divider,
                     checked -> FbaPrefs.setStoryFilterVerbose(checked)));
-            content.addView(switchRow(context, "提示中显示内容位置",
+            storyBody.addView(switchRow(context, "提示中显示内容位置",
                     "在剔除提示后追加距当前内容的「（后 N 条）」；默认关闭",
                     FbaPrefs.storyFilterOffset(), titleColor, subColor, divider,
                     checked -> FbaPrefs.setStoryFilterOffset(checked)));
-
-            // ---- 分享与标记 ----
-            content.addView(section(context, "分享与标记", "用于采集小视频广告信息", subColor));
-            content.addView(switchRow(context, "分享面板显示「标记广告」",
+            storyBody.addView(switchRow(context, "分享面板显示「标记广告」",
                     "在小视频分享面板添加入口，将当前条目信息写入日志",
                     FbaPrefs.shareMark(), titleColor, subColor, divider,
                     checked -> FbaPrefs.setShareMark(checked)));
-
             }
 
             // ---- 启动页 ----
@@ -480,6 +479,54 @@ public final class FbaSettings {
             group.addView(description);
         }
         return group;
+    }
+
+    /** 可展开的子分组：标题行点击展开/收起，内容放在返回容器的 tag 里。 */
+    private static LinearLayout expandableSection(Context context, String title, String subtitle,
+                                                  int titleColor, int subColor) {
+        LinearLayout wrap = new LinearLayout(context);
+        wrap.setOrientation(LinearLayout.VERTICAL);
+
+        LinearLayout header = new LinearLayout(context);
+        header.setOrientation(LinearLayout.HORIZONTAL);
+        header.setGravity(Gravity.CENTER_VERTICAL);
+        header.setPadding(dp(context, 20), dp(context, 14), dp(context, 20), dp(context, 10));
+        header.setClickable(true);
+
+        TextView name = new TextView(context);
+        name.setText(title);
+        name.setTextSize(TypedValue.COMPLEX_UNIT_SP, 15);
+        name.setTextColor(titleColor);
+        header.addView(name, new LinearLayout.LayoutParams(0,
+                ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+
+        final TextView arrow = new TextView(context);
+        arrow.setText("▾");
+        arrow.setTextSize(TypedValue.COMPLEX_UNIT_SP, 14);
+        arrow.setTextColor(subColor);
+        header.addView(arrow);
+
+        TextView hint = new TextView(context);
+        hint.setText(subtitle);
+        hint.setTextSize(TypedValue.COMPLEX_UNIT_SP, 11);
+        hint.setTextColor(subColor);
+        hint.setPadding(dp(context, 20), 0, dp(context, 20), dp(context, 6));
+
+        final LinearLayout body = new LinearLayout(context);
+        body.setOrientation(LinearLayout.VERTICAL);
+        body.setVisibility(View.GONE);
+
+        header.setOnClickListener(v -> {
+            boolean show = body.getVisibility() != View.VISIBLE;
+            body.setVisibility(show ? View.VISIBLE : View.GONE);
+            arrow.setText(show ? "▴" : "▾");
+        });
+
+        wrap.addView(header);
+        wrap.addView(hint);
+        wrap.addView(body);
+        wrap.setTag(body);
+        return wrap;
     }
 
     private static View switchRow(Context context, String title, String subtitle,
