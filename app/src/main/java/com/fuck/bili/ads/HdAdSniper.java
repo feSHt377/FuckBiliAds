@@ -1,7 +1,6 @@
 package com.fuck.bili.ads;
 
-import android.content.Context;
-import android.widget.Space;
+import android.content.pm.ApplicationInfo;
 
 import com.fuck.bili.ads.core.NativeHooks;
 import com.fuck.bili.ads.core.Reflect;
@@ -15,29 +14,9 @@ public final class HdAdSniper {
     private HdAdSniper() {
     }
 
-    public static void hook(ClassLoader loader) {
-        hookRelate(loader);
+    public static void hook(ClassLoader loader, ApplicationInfo appInfo) {
+        PlayPageAdSniper.hook(loader, appInfo);
         hookPaused(loader);
-    }
-
-    /** Creates the same empty component wrapper the host uses for unavailable ads. */
-    private static void hookRelate(ClassLoader loader) {
-        try {
-            Class<?> type = Reflect.findClass(
-                    "com.bilibili.ship.theseus.united.page.intro.module.relate.ad.RelateCMComponent", loader);
-            Method create = NativeHooks.method(type, "b", Context.class,
-                    Reflect.findClass("android.view.ViewGroup", loader));
-            Class<?> wrapper = Reflect.findClass(
-                    "com.bilibili.ship.theseus.united.page.intro.module.relate.ad.a", loader);
-            Class<?> empty = Reflect.findClass("ma.c", loader);
-            NativeHooks.hook("HdAdSniper.Relate", create, chain -> {
-                Context context = (Context) chain.getArg(0);
-                return Reflect.newInstance(wrapper, Reflect.newInstance(empty, new Space(context)));
-            });
-            FbaLog.i("[HD] 播放页关联推广已拦截");
-        } catch (Throwable error) {
-            FbaLog.e("[HD] 播放页关联推广拦截失败", error);
-        }
     }
 
     /** The HD package does not contain the mobile paused-page ad class. */

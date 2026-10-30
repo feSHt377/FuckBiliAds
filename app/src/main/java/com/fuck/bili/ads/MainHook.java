@@ -108,7 +108,7 @@ public class MainHook extends XposedModule {
         FbaRuntime.whenReady(() -> {
             if (FbaPrefs.blockPlay()) {
                 if (hd) {
-                    install("HD播放页广告", () -> HdAdSniper.hook(classLoader));
+                    install("HD播放页广告", () -> HdAdSniper.hook(classLoader, appInfo));
                 } else {
                     install("播放页广告", () -> BiliAdSniper.hook(classLoader));
                 }
