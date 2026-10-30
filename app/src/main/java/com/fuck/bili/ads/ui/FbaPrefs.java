@@ -29,6 +29,13 @@ public final class FbaPrefs {
     private static final String KEY_SPLASH_THEME = "splash_theme";
     private static final String KEY_BRAND_SPLASH_BLOCK = "brand_splash_block";
 
+    // ---- 广告拦截分项开关：默认全开（保持原有行为），可单独关掉 ----
+    private static final String KEY_BLOCK_SPLASH = "block_splash";
+    private static final String KEY_BLOCK_FEED = "block_feed";
+    private static final String KEY_BLOCK_PLAY = "block_play";
+    private static final String KEY_BLOCK_LIVE = "block_live";
+    private static final String KEY_BLOCK_FOLLOW = "block_follow";
+
     // ---- update checker ----
     private static final String KEY_UPDATE_AUTO = "update_auto";
     private static final String KEY_UPDATE_PRERELEASE = "update_prerelease";
@@ -171,6 +178,54 @@ public final class FbaPrefs {
         int uiMode = android.content.res.Resources.getSystem().getConfiguration().uiMode;
         return (uiMode & android.content.res.Configuration.UI_MODE_NIGHT_MASK)
                 == android.content.res.Configuration.UI_MODE_NIGHT_YES;
+    }
+
+    // ------------------------------------------------------- 广告拦截分项开关
+    // 默认全开：装上即按原行为拦截；用户可在设置里逐项关掉。
+
+    /** 开屏广告（商业 / 品牌 / 运营三类请求 + 决策层兜底）。 */
+    public static boolean blockSplash() {
+        return getBoolean(KEY_BLOCK_SPLASH, true);
+    }
+
+    public static void setBlockSplash(boolean value) {
+        putBoolean(KEY_BLOCK_SPLASH, value);
+    }
+
+    /** 主页信息流广告卡片。 */
+    public static boolean blockFeed() {
+        return getBoolean(KEY_BLOCK_FEED, true);
+    }
+
+    public static void setBlockFeed(boolean value) {
+        putBoolean(KEY_BLOCK_FEED, value);
+    }
+
+    /** 播放页与暂停页广告。 */
+    public static boolean blockPlay() {
+        return getBoolean(KEY_BLOCK_PLAY, true);
+    }
+
+    public static void setBlockPlay(boolean value) {
+        putBoolean(KEY_BLOCK_PLAY, value);
+    }
+
+    /** 直播间广告。 */
+    public static boolean blockLive() {
+        return getBoolean(KEY_BLOCK_LIVE, true);
+    }
+
+    public static void setBlockLive(boolean value) {
+        putBoolean(KEY_BLOCK_LIVE, value);
+    }
+
+    /** 关注页动态广告。 */
+    public static boolean blockFollow() {
+        return getBoolean(KEY_BLOCK_FOLLOW, true);
+    }
+
+    public static void setBlockFollow(boolean value) {
+        putBoolean(KEY_BLOCK_FOLLOW, value);
     }
 
     // ------------------------------------------------------------- update check

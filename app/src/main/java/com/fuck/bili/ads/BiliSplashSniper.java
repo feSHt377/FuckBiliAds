@@ -4,6 +4,8 @@ import android.app.Activity;
 import android.graphics.drawable.ColorDrawable;
 import android.graphics.drawable.Drawable;
 import android.graphics.drawable.LayerDrawable;
+import android.os.Handler;
+import android.os.Looper;
 import android.util.Log;
 import android.view.View;
 import android.view.Window;
@@ -206,7 +208,12 @@ public final class BiliSplashSniper {
                             Object url = Reflect.callMethod(request, "url");
                             String host = (String) Reflect.callMethod(url, "host");
                             path = (String) Reflect.callMethod(url, "encodedPath");
-                            String requestMethod = (String) Reflect.callMethod(url, "method");
+                            // HTTP 方法在 Request 上，HttpUrl 没有 method()——之前写错导致
+                            // 整个检查直接抛异常，等同于从未拦截过开屏请求。
+                            String requestMethod = (String) Reflect.tryCallMethod(request, "method");
+                            if (requestMethod == null) {
+                                requestMethod = "GET";
+                            }
                             target = isTarget(host, path, requestMethod);
                         } catch (Throwable error) {
                             Log.d(TAG, "[SplashBlock] request inspection failed: " + error);
@@ -214,6 +221,10 @@ public final class BiliSplashSniper {
                         }
                         // 放行必须位于检查 try/catch 外，网络异常不能被误认为检查失败而重试。
                         if (!target) return invoke(proceed, chain, request);
+                        if (!FbaPrefs.blockSplash()) {
+                            Log.d(TAG, "[SplashBlock] disabled by pref, pass through " + path);
+                            return invoke(proceed, chain, request);
+                        }
                         try {
                             String json = emptyResponse(path);
                             Object body = createBody.invoke(null, jsonMedia, json);
@@ -521,54 +532,94 @@ public final class BiliSplashSniper {
     }
 
     private static void applySplashTheme(Activity activity) {
-        boolean night = FbaPrefs.splashNight();
-        int color = night ? 0xFF17181A : 0xFFFFFFFF;
+        boolean night = resolveSplashNight(activity);
         Window window = activity.getWindow();
         if (window == null) {
             return;
         }
+        View decor = window.getDecorView();
+        if (decor == null) {
+            return;
+        }
+        Drawable background = decor.getBackground();
+        Log.d(TAG, "[SplashTheme] enter night=" + night + " bg=" + background
+                + " activity=" + activity.getClass().getSimpleName());
+        // 只在真正的开屏窗口背景（含纯色图层的 LayerDrawable）上改色。
+        // 其它情况一律不动：HD 的深色模式是应用内开关，宿主背景被换成纯白会让
+        // 深色页面变成白底，等于把深色模式废掉。
+        if (!(background instanceof LayerDrawable)) {
+            Log.d(TAG, "[SplashTheme] skip: not a splash layer");
+            return;
+        }
+        int color = night ? 0xFF17181A : 0xFFFFFFFF;
         Drawable themed = null;
-        Drawable background = window.getDecorView().getBackground();
-        if (background instanceof LayerDrawable) {
-            try {
-                Drawable.ConstantState state = background.getConstantState();
-                Drawable copy = state == null ? null : state.newDrawable(activity.getResources()).mutate();
-                if (copy instanceof LayerDrawable) {
-                    LayerDrawable layers = (LayerDrawable) copy;
-                    boolean tinted = false;
-                    for (int i = 0; i < layers.getNumberOfLayers(); i++) {
-                        Drawable layer = layers.getDrawable(i);
-                        if (layer instanceof ColorDrawable) {
-                            ((ColorDrawable) layer).setColor(color);
-                            tinted = true;
-                        }
-                    }
-                    if (tinted) {
-                        themed = layers;
+        try {
+            Drawable.ConstantState state = background.getConstantState();
+            Drawable copy = state == null ? null : state.newDrawable(activity.getResources()).mutate();
+            if (copy instanceof LayerDrawable) {
+                LayerDrawable layers = (LayerDrawable) copy;
+                boolean tinted = false;
+                for (int i = 0; i < layers.getNumberOfLayers(); i++) {
+                    Drawable layer = layers.getDrawable(i);
+                    if (layer instanceof ColorDrawable) {
+                        ((ColorDrawable) layer).setColor(color);
+                        tinted = true;
                     }
                 }
-            } catch (Throwable ignore) {
-                // 退回纯色背景
+                if (tinted) {
+                    themed = layers;
+                }
             }
+        } catch (Throwable ignore) {
+            // 拿不到可复制的图层就不改
         }
         if (themed == null) {
-            themed = new ColorDrawable(color);
+            Log.d(TAG, "[SplashTheme] skip: no color layer");
+            return;
         }
+        final Drawable original = background;
+        final int originalFlags = decor.getSystemUiVisibility();
         window.setBackgroundDrawable(themed);
-
-        View decor = window.getDecorView();
-        if (decor != null) {
-            int flags = decor.getSystemUiVisibility();
-            if (night) {
-                flags &= ~View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR;
-            } else {
-                flags |= View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR;
-            }
-            decor.setSystemUiVisibility(flags);
+        int flags = originalFlags;
+        if (night) {
+            flags &= ~View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR;
+        } else {
+            flags |= View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR;
         }
+        decor.setSystemUiVisibility(flags);
         Log.d(TAG, "[SplashTheme] applied night=" + night + " pref=" + FbaPrefs.splashTheme()
-                + " activity=" + activity.getClass().getSimpleName()
-                + " layered=" + (themed instanceof LayerDrawable));
+                + " activity=" + activity.getClass().getSimpleName() + " layered=true");
+        // 开屏结束后恢复宿主原背景与状态栏标记，避免影响后续页面的深色模式。
+        Handler handler = new Handler(Looper.getMainLooper());
+        handler.postDelayed(() -> {
+            try {
+                if (window.getDecorView() != null) {
+                    window.setBackgroundDrawable(original);
+                    window.getDecorView().setSystemUiVisibility(originalFlags);
+                    Log.d(TAG, "[SplashTheme] restored");
+                }
+            } catch (Throwable ignore) {
+                // 页面已销毁
+            }
+        }, 4000L);
+    }
+
+    /** Explicit preference wins; otherwise follow the activity's own night mode. */
+    private static boolean resolveSplashNight(Activity activity) {
+        String mode = FbaPrefs.splashTheme();
+        if ("dark".equals(mode)) {
+            return true;
+        }
+        if ("light".equals(mode)) {
+            return false;
+        }
+        try {
+            int uiMode = activity.getResources().getConfiguration().uiMode;
+            return (uiMode & android.content.res.Configuration.UI_MODE_NIGHT_MASK)
+                    == android.content.res.Configuration.UI_MODE_NIGHT_YES;
+        } catch (Throwable ignored) {
+            return FbaPrefs.splashNight();
+        }
     }
 
     private BiliSplashSniper() { }

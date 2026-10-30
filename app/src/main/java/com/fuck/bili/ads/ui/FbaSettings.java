@@ -111,6 +111,32 @@ public final class FbaSettings {
             root.addView(scroll, new LinearLayout.LayoutParams(
                     ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
 
+            // ---- 广告拦截（分项开关，默认全开）----
+            content.addView(section(context, "广告拦截",
+                    "默认全部开启；关掉后对应广告恢复，重启宿主生效", subColor));
+            content.addView(switchRow(context, "跳过开屏广告",
+                    "拦截商业 / 品牌 / 运营开屏请求，并隐藏已缓存的广告开屏页",
+                    FbaPrefs.blockSplash(), titleColor, subColor, divider,
+                    checked -> FbaPrefs.setBlockSplash(checked)));
+            content.addView(switchRow(context, "主页信息流广告",
+                    "隐藏推荐流中的广告卡片与推广内容",
+                    FbaPrefs.blockFeed(), titleColor, subColor, divider,
+                    checked -> FbaPrefs.setBlockFeed(checked)));
+            content.addView(switchRow(context, "播放页与暂停页广告",
+                    "屏蔽播放页关联推广与暂停时的广告浮层",
+                    FbaPrefs.blockPlay(), titleColor, subColor, divider,
+                    checked -> FbaPrefs.setBlockPlay(checked)));
+            if (!Host.isHd()) {
+                content.addView(switchRow(context, "直播间广告",
+                        "隐藏直播间列表与房间内的推广位",
+                        FbaPrefs.blockLive(), titleColor, subColor, divider,
+                        checked -> FbaPrefs.setBlockLive(checked)));
+            }
+            content.addView(switchRow(context, "关注页动态广告",
+                    "从关注动态列表里移除广告条目",
+                    FbaPrefs.blockFollow(), titleColor, subColor, divider,
+                    checked -> FbaPrefs.setBlockFollow(checked)));
+
             if (!Host.isHd()) {
             // ---- 小视频 ----
             content.addView(section(context, "小视频", "自动跳过或从播放列表剔除广告", subColor));
@@ -183,9 +209,12 @@ public final class FbaSettings {
 
             // ---- 调试工具 ----
             content.addView(section(context, "调试工具", "仅在排查问题时使用", subColor));
-            content.addView(actionRow(context, "标记当前小视频条目",
-                    "将当前可见条目的 aid、cid、adInfo 写入日志",
-                    titleColor, subColor, divider, v -> markCurrent(context)));
+            // 小视频相关动作只在手机版有意义，HD 没有竖屏 Story 页面。
+            if (!Host.isHd()) {
+                content.addView(actionRow(context, "标记当前小视频条目",
+                        "将当前可见条目的 aid、cid、adInfo 写入日志",
+                        titleColor, subColor, divider, v -> markCurrent(context)));
+            }
             content.addView(actionRow(context, "复制当前页面诊断",
                     "复制页面结构快照，便于反馈问题",
                     titleColor, subColor, divider, v -> copySnapshot(context)));
@@ -196,12 +225,14 @@ public final class FbaSettings {
             content.addView(actionRow(context, "测试宿主 Toast",
                     "验证能否使用 B 站自身的 Toast 提示",
                     titleColor, subColor, divider, v -> testToast(context)));
-            content.addView(actionRow(context, "测试广告剔除提示",
-                    FbaPrefs.storyFilterOffset()
-                            ? "模拟「已剔除 3 个内容（后 3 条）」，不修改播放列表"
-                            : "模拟「已剔除 3 个内容」，不修改播放列表",
-                    titleColor, subColor, divider,
-                    v -> StoryAdFilter.debugToast(activityOf(context), 3, 3)));
+            if (!Host.isHd()) {
+                content.addView(actionRow(context, "测试广告剔除提示",
+                        FbaPrefs.storyFilterOffset()
+                                ? "模拟「已剔除 3 个内容（后 3 条）」，不修改播放列表"
+                                : "模拟「已剔除 3 个内容」，不修改播放列表",
+                        titleColor, subColor, divider,
+                        v -> StoryAdFilter.debugToast(activityOf(context), 3, 3)));
+            }
             content.addView(actionRow(context, "播报模块加载状态",
                     "通过 Toast 显示各项功能的 Hook 安装结果",
                     titleColor, subColor, divider,
@@ -222,8 +253,10 @@ public final class FbaSettings {
             // ---- 运行诊断 ----
             content.addView(section(context, "运行诊断", "本次启动后的模块运行状态", subColor));
             content.addView(infoRow(context, "Hook 安装状态", FbaRuntime.summary(), titleColor, subColor, divider));
-            content.addView(infoRow(context, "小视频页面扫描", StoryDiag.describe(), titleColor, subColor, divider));
-            content.addView(infoRow(context, "广告剔除统计", StoryAdFilter.stats(), titleColor, subColor, divider));
+            if (!Host.isHd()) {
+                content.addView(infoRow(context, "小视频页面扫描", StoryDiag.describe(), titleColor, subColor, divider));
+                content.addView(infoRow(context, "广告剔除统计", StoryAdFilter.stats(), titleColor, subColor, divider));
+            }
             content.addView(infoRow(context, "日志文件状态", FbaLog.fileOk() ? "正常写入" : ("写入失败：" + FbaLog.lastError()),
                     titleColor, subColor, divider));
 

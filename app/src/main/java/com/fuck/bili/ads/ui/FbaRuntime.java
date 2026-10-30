@@ -44,6 +44,42 @@ public final class FbaRuntime {
         }
     }
 
+    /**
+     * Runs {@code task} once the Application is available.
+     *
+     * <p>Preferences are unreadable during {@code onPackageLoaded}, so any hook
+     * whose installation depends on a user switch has to wait: reading them too
+     * early silently falls back to the defaults.
+     */
+    public static void whenReady(final Runnable task) {
+        Handler handler = handler();
+        if (handler == null) {
+            task.run();
+            return;
+        }
+        handler.post(new Runnable() {
+            private int attempts;
+
+            @Override
+            public void run() {
+                Context ctx = context();
+                if (ctx == null && attempts++ < 25) {
+                    Handler again = handler();
+                    if (again != null) {
+                        again.postDelayed(this, 200L);
+                    } else {
+                        task.run();
+                    }
+                    return;
+                }
+                if (ctx != null) {
+                    FbaPrefs.init(ctx);
+                }
+                task.run();
+            }
+        });
+    }
+
     /** Best-effort Application instance; may return null very early. */
     public static Context context() {
         if (application != null) {

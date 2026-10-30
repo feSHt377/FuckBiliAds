@@ -63,6 +63,10 @@ public final class HdMineServiceEntry {
             return;
         }
         try {
+            // 探针只在需要取证时打开（FbaPrefs.verbose），默认不介入宿主启动路径。
+            if (FbaPrefs.verbose()) {
+                HdRecyclerProbe.hook(loader);
+            }
             Class<?> fragment = Reflect.findClass(FRAGMENT, loader);
             hookLifecycle(fragment, "onViewCreated");
             hookLifecycle(fragment, "onResume");
@@ -72,6 +76,36 @@ public final class HdMineServiceEntry {
         } catch (Throwable error) {
             FbaLog.e("[HD] 我的页设置入口安装失败", error);
         }
+    }
+
+    /**
+     * The right hand panel ("常用功能"/"更多服务" content) is a different
+     * fragment; its menu lives in that fragment's own recycler.
+     */
+    private static void hookContentFragment(ClassLoader loader) {
+        Class<?> common = Reflect.findClassIfExists(
+                "tv.danmaku.bilibilihd.ui.main.mine.common.HdCommonBaseFragment", loader);
+        if (common == null) {
+            FbaLog.w("[HD] 未找到内容面板 Fragment");
+            return;
+        }
+        NativeHooks.hookAllMethods("HdMineServiceEntry.common.onViewCreated", common, "onViewCreated",
+                chain -> {
+                    Object result = chain.proceed();
+                    probeContentLater(chain.getThisObject(), 700L);
+                    probeContentLater(chain.getThisObject(), 2500L);
+                    probeContentLater(chain.getThisObject(), 5000L);
+                    return result;
+                });
+        FbaLog.i("[HD] 内容面板 Hook 已安装: " + common.getName());
+    }
+
+    private static void probeContentLater(Object fragment, long delayMs) {
+        Handler handler = FbaRuntime.handler();
+        if (handler == null) {
+            return;
+        }
+        handler.postDelayed(() -> HdMineProbe.dumpContent(fragment, "+" + delayMs + "ms"), delayMs);
     }
 
     private static void hookLifecycle(Class<?> fragment, String method) {
@@ -144,6 +178,9 @@ public final class HdMineServiceEntry {
             }
             Object adapter = findMenuAdapter((View) view);
             if (adapter == null) {
+                if (FbaPrefs.verbose()) {
+                    HdMineProbe.dumpOnce(fragment);
+                }
                 if (misses++ % 8 == 0) {
                     FbaLog.d("[HD] 我的页菜单尚未就绪，第 " + misses + " 次探测");
                 }
@@ -172,7 +209,8 @@ public final class HdMineServiceEntry {
         queue.add(root);
         while (!queue.isEmpty()) {
             View view = queue.poll();
-            if (view instanceof RecyclerView) {
+            // 不能用 instanceof：模块自带一份 androidx，类身份与宿主不同。
+            if (HdMineProbe.isRecycler(view)) {
                 Object adapter = Reflect.tryCallMethod(view, "getAdapter");
                 if (adapter != null && (groupList(adapter) != null || flatItems(adapter) != null)) {
                     return adapter;
@@ -238,7 +276,7 @@ public final class HdMineServiceEntry {
         queue.add((View) itemView);
         while (!queue.isEmpty()) {
             View view = queue.poll();
-            if (view instanceof RecyclerView) {
+            if (HdMineProbe.isRecycler(view)) {
                 Object nested = Reflect.tryCallMethod(view, "getAdapter");
                 if (nested != null) {
                     hookBind(nested);
@@ -376,47 +414,48 @@ public final class HdMineServiceEntry {
                 return list;
             }
         }
+        // HD 的菜单适配器把列表藏在访问器后面（例如 b#h0()），字段里没有。
+        for (Method method : allMethods(adapter.getClass())) {
+            if (Modifier.isStatic(method.getModifiers())
+                    || method.getParameterTypes().length != 0
+                    || method.getReturnType() != List.class) {
+                continue;
+            }
+            try {
+                method.setAccessible(true);
+                Object value = method.invoke(adapter);
+                if (value instanceof List) {
+                    List<Object> list = (List<Object>) value;
+                    if (!list.isEmpty() && isItem(list.get(0))) {
+                        return list;
+                    }
+                }
+            } catch (Throwable ignored) {
+                // try next accessor
+            }
+        }
         return null;
     }
 
-    /** Items of one card: the list field whose elements are menu items. */
-    @SuppressWarnings("unchecked")
-    static List<Object> itemsOf(Object group) {
-        List<Object> empty = null;
-        for (Field field : allFields(group.getClass())) {
-            if (Modifier.isStatic(field.getModifiers()) || !List.class.isAssignableFrom(field.getType())) {
-                continue;
-            }
-            Object value = read(field, group);
-            if (!(value instanceof List)) {
-                continue;
-            }
-            List<Object> list = (List<Object>) value;
-            if (!list.isEmpty() && isItem(list.get(0))) {
-                return list;
-            }
-            if (list.isEmpty() && empty == null) {
-                empty = list;
-            }
+    private static List<Method> allMethods(Class<?> start) {
+        List<Method> methods = new ArrayList<>();
+        for (Class<?> type = start; type != null && type != Object.class; type = type.getSuperclass()) {
+            Collections.addAll(methods, type.getDeclaredMethods());
         }
-        return empty;
+        return methods;
+    }
+
+    /** Items of one card: the list field whose elements are menu items. */
+    static List<Object> itemsOf(Object group) {
+        return MineEntryCore.itemsOf(group, ITEM);
     }
 
     static String titleOf(Object group) {
-        for (Field field : allFields(group.getClass())) {
-            if (Modifier.isStatic(field.getModifiers()) || field.getType() != String.class) {
-                continue;
-            }
-            Object value = read(field, group);
-            if (value instanceof String) {
-                return (String) value;
-            }
-        }
-        return "";
+        return MineEntryCore.titleOf(group);
     }
 
     private static boolean isItem(Object value) {
-        return value != null && isItemType(value.getClass());
+        return MineEntryCore.isItem(value, ITEM);
     }
 
     /** Compact card dump so a single log line explains where the entry landed. */
@@ -496,12 +535,7 @@ public final class HdMineServiceEntry {
     }
 
     private static boolean containsUri(List<Object> items, String uri) {
-        for (Object item : items) {
-            if (uri.equals(stringField(item, "uri"))) {
-                return true;
-            }
-        }
-        return false;
+        return MineEntryCore.containsUri(items, uri);
     }
 
     /**
@@ -560,31 +594,19 @@ public final class HdMineServiceEntry {
     }
 
     private static Object buildItem(Context context, List<Object> groups) {
-        if (context == null) {
+        Object item = MineEntryCore.buildItem(context, ITEM, ITEM_TITLE, SETTINGS_URI, ITEM_ID);
+        if (item == null) {
             return null;
         }
-        try {
-            Class<?> itemClass = Reflect.findClass(ITEM, context.getClassLoader());
-            Object item = Reflect.newInstance(itemClass);
-            setField(item, "id", ITEM_ID);
-            setField(item, "title", ITEM_TITLE);
-            setField(item, "uri", SETTINGS_URI);
-            setField(item, "needLogin", 0);
-            setField(item, "visible", 1);
-            setField(item, "localRedDot", 0);
-            int icon = hostSettingsIcon(groups);
-            if (icon == 0) {
-                icon = context.getResources().getIdentifier("ic_mine_setting", "drawable",
-                        context.getPackageName());
-            }
-            if (icon != 0) {
-                setField(item, "iconResId", icon);
-            }
-            return item;
-        } catch (Throwable error) {
-            FbaLog.e("[HD] 构造设置项失败", error);
-            return null;
+        int icon = hostSettingsIcon(groups);
+        if (icon == 0) {
+            icon = context.getResources().getIdentifier("ic_mine_setting", "drawable",
+                    context.getPackageName());
         }
+        if (icon != 0) {
+            setField(item, "iconResId", icon);
+        }
+        return item;
     }
 
     /** Reuses the icon of the host's own settings row so the entry looks native. */
@@ -611,60 +633,25 @@ public final class HdMineServiceEntry {
     }
 
     // ------------------------------------------------------------------ helpers
+    // 通用反射 / 菜单模型逻辑统一在 MineEntryCore，手机版与 HD 不再各写一份。
 
     private static List<Field> allFields(Class<?> start) {
-        List<Field> fields = new ArrayList<>();
-        for (Class<?> type = start; type != null && type != Object.class; type = type.getSuperclass()) {
-            Collections.addAll(fields, type.getDeclaredFields());
-        }
-        return fields;
+        return MineEntryCore.allFields(start);
     }
 
     private static Object read(Field field, Object target) {
-        try {
-            field.setAccessible(true);
-            return field.get(target);
-        } catch (Throwable ignored) {
-            return null;
-        }
+        return MineEntryCore.read(field, target);
     }
 
     private static Object field(Object target, String name) {
-        if (target == null) {
-            return null;
-        }
-        for (Field field : allFields(target.getClass())) {
-            if (field.getName().equals(name)) {
-                return read(field, target);
-            }
-        }
-        return null;
+        return MineEntryCore.field(target, name);
     }
 
     private static String stringField(Object target, String name) {
-        Object value = field(target, name);
-        return value instanceof String ? (String) value : null;
+        return MineEntryCore.stringField(target, name);
     }
 
     private static void setField(Object target, String name, Object value) {
-        for (Field field : allFields(target.getClass())) {
-            if (!field.getName().equals(name)) {
-                continue;
-            }
-            try {
-                field.setAccessible(true);
-                Class<?> type = field.getType();
-                if (type == long.class && value instanceof Number) {
-                    field.setLong(target, ((Number) value).longValue());
-                } else if (type == int.class && value instanceof Number) {
-                    field.setInt(target, ((Number) value).intValue());
-                } else if (!type.isPrimitive()) {
-                    field.set(target, value);
-                }
-            } catch (Throwable ignored) {
-                // best effort
-            }
-            return;
-        }
+        MineEntryCore.setField(target, name, value);
     }
 }

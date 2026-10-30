@@ -39,6 +39,10 @@ public class MainHook extends XposedModule {
 
     public static boolean isInternational = false;
 
+    /** One installation per process; repeated callbacks would stack hooks. */
+    private static final java.util.concurrent.atomic.AtomicBoolean LOADED =
+            new java.util.concurrent.atomic.AtomicBoolean();
+
     public MainHook() {
         super();
     }
@@ -53,6 +57,13 @@ public class MainHook extends XposedModule {
                 && !INTERNATIONAL_PACKAGE_NAME.equals(packageName)
                 && !PACKAGE_NAME_ALIAS.equals(packageName)
                 && !HD_PACKAGE_NAME.equals(packageName)) {
+            return;
+        }
+        // LSPosed 在同一进程里可能多次回调 onPackageLoaded（实测 HD + LSPosed 2.2.1
+        // 会在几百毫秒内连调 8 次）。没有这道闸门时 Hook 会一层层叠加，
+        // 启动阶段直接被拖死，表现为「卡在启动页」。
+        if (!LOADED.compareAndSet(false, true)) {
+            FbaLog.d("[SKIP] duplicate onPackageLoaded: " + packageName);
             return;
         }
         if (INTERNATIONAL_PACKAGE_NAME.equals(packageName)) {
@@ -91,16 +102,28 @@ public class MainHook extends XposedModule {
         }
 
         // ---- 不依赖 DexKit 的 hook：立刻装，启动页/弹幕/小视频等功能不等扫描 ----
+        // 开屏请求拦截必须尽早装（OkHttp 客户端可能早于设置读取就建好），
+        // 开关在拦截器里运行时判断；播放页 / 关注页的 Hook 可以等 Application 就绪后再装。
         install("开屏拦截", () -> BiliSplashSniper.hookEarly(classLoader));
-        if (!hd) {
-            install("播放页广告", () -> BiliAdSniper.hook(classLoader));
-        } else {
-            install("HD播放页广告", () -> HdAdSniper.hook(classLoader));
-        }
+        FbaRuntime.whenReady(() -> {
+            if (FbaPrefs.blockPlay()) {
+                if (hd) {
+                    install("HD播放页广告", () -> HdAdSniper.hook(classLoader));
+                } else {
+                    install("播放页广告", () -> BiliAdSniper.hook(classLoader));
+                }
+            } else {
+                FbaLog.i("[SKIP] 播放页广告拦截已在设置中关闭");
+            }
+            if (FbaPrefs.blockFollow()) {
+                install("关注页广告", () -> FollowingListAdSniper.hook(classLoader));
+                install("关注页设置", () -> FollowingTopLeftButton.hook(classLoader));
+            } else {
+                FbaLog.i("[SKIP] 关注页广告拦截已在设置中关闭");
+            }
+        });
         install("底部导航", () -> BiliBottomNavSniper.hook(classLoader));
         install("抓包", () -> PacketSniffer.hook(classLoader));
-        install("关注页广告", () -> FollowingListAdSniper.hook(classLoader));
-        install("关注页设置", () -> FollowingTopLeftButton.hook(classLoader));
         if (!hd) {
             install("小视频", () -> StoryAdSniper.hook(classLoader));
             install("分享标记", () -> StoryShareMark.hook(classLoader));
@@ -170,16 +193,24 @@ public class MainHook extends XposedModule {
     private static void installDependent(String packageName, ClassLoader classLoader,
                                          DexKitHelper helper, boolean shouldRunDescCopyFix) {
         install("基础 Hook", () -> executeOriginalHooks(packageName, classLoader, helper));
-        install("广告卡片", () -> BiliCardAdSniper.hook(classLoader, helper));
-        install("开屏跳过", () -> BiliSplashSniper.hookDisplayFallback(classLoader, helper));
+        if (FbaPrefs.blockFeed()) {
+            install("广告卡片", () -> BiliCardAdSniper.hook(classLoader, helper));
+        } else {
+            FbaLog.i("[SKIP] 主页广告拦截已在设置中关闭");
+        }
+        if (FbaPrefs.blockSplash()) {
+            install("开屏跳过", () -> BiliSplashSniper.hookDisplayFallback(classLoader, helper));
+        }
         if (!Host.isHdPackage(packageName)) {
             install("视频提及", () -> BiliMentionedSniper.hook(classLoader, helper));
         }
-        install("全局广告", () -> GlobalAdSniperEngine.hook(classLoader, helper));
+        if (FbaPrefs.blockFeed()) {
+            install("全局广告", () -> GlobalAdSniperEngine.hook(classLoader, helper));
+        }
         if (!Host.isHdPackage(packageName)) {
             install("大会员预测", () -> VIPPredict.hook(classLoader, helper));
         }
-        if (!Host.isHdPackage(packageName)) {
+        if (FbaPrefs.blockLive() && !Host.isHdPackage(packageName)) {
             install("直播间广告", () -> LiveRoomAdSniper.hook(classLoader, helper));
         }
         install("免流提示", () -> FreeDataToastSniper.hook(classLoader, helper));
