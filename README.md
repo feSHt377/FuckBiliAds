@@ -6,9 +6,10 @@
 
 **哔哩哔哩 Xposed 去广告模块 · 手机版与 HD 通用**
 
-![version](https://img.shields.io/badge/version-1.3.1-ff2d55)
-[![xposed repo](https://img.shields.io/badge/Xposed%20Repo-listed-00aeec)](https://modules.lsposed.org/module/io.github.fesht377.biliads/)
+[![release](https://img.shields.io/github/v/release/feSHt377/FuckBiliAds?color=ff2d55)](https://github.com/feSHt377/FuckBiliAds/releases/latest)
 [![stars](https://img.shields.io/github/stars/feSHt377/FuckBiliAds?label=stars&color=ff2d55)](https://github.com/feSHt377/FuckBiliAds/stargazers)
+[![downloads](https://img.shields.io/github/downloads/feSHt377/FuckBiliAds/total?color=00aeec)](https://github.com/feSHt377/FuckBiliAds/releases)
+[![xposed repo](https://img.shields.io/badge/Xposed%20Repo-listed-00aeec)](https://modules.lsposed.org/module/io.github.fesht377.biliads/)
 ![host](https://img.shields.io/badge/host-9.17.0%20%2B%20HD%202.5.1-00aeec)
 ![platform](https://img.shields.io/badge/platform-Android%208.0%2B-3ddc84)
 ![framework](https://img.shields.io/badge/LSPosed%20%2F%20LSPatch-API%20102-3ddc84)
@@ -39,6 +40,18 @@
 | 日志与诊断 | 文件 + logcat 双写，设置页可查看、导出、清空 |
 
 完整变更见 [Releases](https://github.com/feSHt377/FuckBiliAds/releases)。
+
+## 安装
+
+1. 下载 `FuckBiliAds-*.apk` 并安装：从 [Releases](https://github.com/feSHt377/FuckBiliAds/releases) 下载，
+   或在 LSPosed 管理器的「模块仓库」里搜索 `FuckBiliAds` 在线安装。
+2. 启用模块，二选一：
+   - **有 Root**：在 LSPosed 中启用本模块，作用域勾选「哔哩哔哩」（HD 用户勾「哔哩哔哩HD」）；
+   - **无 Root**：用 [LSPatch](https://github.com/LSPosed/LSPatch) 把本模块补进哔哩哔哩。
+3. 强制停止哔哩哔哩，再重新打开。
+4. 进入「我的 → 更多服务 → FuckBiliAds」，按需开关各项拦截。
+
+遇到问题、需要看日志或手动排查时，见 [详细安装与使用](docs/USAGE.md)。
 
 ## 兼容性
 

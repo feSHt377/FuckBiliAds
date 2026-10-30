@@ -1,11 +1,17 @@
 # FuckBiliAds
 
-哔哩哔哩（`tv.danmaku.bili`）去广告 Xposed / LSPosed 模块，重点解决**竖屏小视频里的广告**：
-检测到广告立即滑到下一条，并用 B 站自己的底部 Toast 提示 `检测到广告，已跳过！FUCK BILI ADS！`
+[![release](https://img.shields.io/github/v/release/feSHt377/FuckBiliAds?color=ff2d55)](https://github.com/feSHt377/FuckBiliAds/releases/latest)
+[![stars](https://img.shields.io/github/stars/feSHt377/FuckBiliAds?label=stars&color=ff2d55)](https://github.com/feSHt377/FuckBiliAds/stargazers)
+[![downloads](https://img.shields.io/github/downloads/feSHt377/FuckBiliAds/total?color=00aeec)](https://github.com/feSHt377/FuckBiliAds/releases)
+
+哔哩哔哩（`tv.danmaku.bili`）去广告 Xposed / LSPosed 模块，手机版与 HD 通用，
+重点解决**竖屏小视频里的广告**：检测到广告立即滑到下一条，
+并用 B 站自己的底部 Toast 提示 `检测到广告，已跳过！FUCK BILI ADS！`
 
 - 源码与完整文档：[github.com/feSHt377/FuckBiliAds](https://github.com/feSHt377/FuckBiliAds)
-- 最高实测宿主版本：**哔哩哔哩 9.16.1**（versionCode 9161100）；9.15.0 亦可用
-- 框架：LSPosed / LSPatch（Xposed API 82+），Android 8.0+
+- 最高实测宿主版本：**哔哩哔哩 9.17.0**（9170300）；9.16.1 / 9.15.0 亦可用
+- HD 适配：**哔哩哔哩 HD 2.5.1**（开屏、我的页入口、播放页、信息流）
+- 框架：LSPosed / LSPatch（Xposed API 102），Android 8.0+
 
 ## 功能
 
@@ -26,7 +32,7 @@
 ## 安装
 
 1. Root + LSPosed，或用 LSPatch 以「本地 / 嵌入式」模式把本模块补进哔哩哔哩；
-2. 安装 APK，作用域勾选哔哩哔哩（`tv.danmaku.bili`）；
+2. 安装 APK，作用域勾选哔哩哔哩（`tv.danmaku.bili`）；HD 用户勾选 `tv.danmaku.bilibilihd`；
 3. 强制停止哔哩哔哩后重新打开，看到 Toast `已加载 · 小视频✓ 入口✓ 分享✓` 即生效。
 
 模块包名 `io.github.fesht377.biliads`（1.0.7 起，旧版 `com.fuck.bili.ads` 已停止更新，升级需先卸载旧版）。
