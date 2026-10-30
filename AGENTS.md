@@ -1,7 +1,8 @@
 # AGENTS.md
 
-面向在本仓库工作的 AI/人类协作者：**这只是一个"怎么做"的约定文件**，功能说明看 `README.md`，
-迁移验收看 `MIGRATION_LIBXPOSED_102.md`，小视频原理看 `STORY_AD_SKIP.md`。
+面向在本仓库工作的 AI/人类协作者：**这只是一个"怎么做"的约定文件**。
+功能概览看 `README.md`；安装使用看 `docs/USAGE.md`，构建发布看 `docs/BUILD.md`，
+小视频原理看 `docs/STORY_SKIP.md`。
 
 ---
 
@@ -202,9 +203,9 @@ aapt2 dump badging FuckBiliAds-1.2.0.apk | head -1               # versionCode /
 ```
 
   预发布（`-pre`）同样按这个口径写，只在标题标注测试版，不把不确定的判断写进去。
-- 迁移/验收这类需要证据的工作，结论写进 `MIGRATION_LIBXPOSED_102.md`，
-  原始证据（`current-hooks.txt`、`g1-static.txt`、`smoke-log.txt`、`callback-matrix.md`）落 `docs/migration/`。
-- 交付前给用户的测试清单放 `docs/migration/USER-TEST.md` 这类文件里，别只写在聊天里。
+- 需要证据的排查/验收结论写进 `docs/` 下的专题文档（如 `docs/STORY_SKIP.md`），
+  原始证据贴正文或落同目录；结论归档后删除已过期的临时文档，别留一堆完成态记录。
+- 交付前给用户的测试清单放 `docs/USER-TEST.md` 这类文件里，别只写在聊天里。
 
 ---
 
