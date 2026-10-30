@@ -225,6 +225,9 @@ adb logcat -s FuckBiliAds
 - 开屏拦截补齐品牌开屏接口 `/x/v2/splash/brand/list`，并新增 HD 决策层闸门（页面工厂返回 null）：已缓存的广告素材同样不会展示。
 - 运营活动开屏（拜年纪等）不属于广告，保持原样。
 
+> **已知问题**：HD 2.0.1 上「我的 → 更多服务」入口与冷启动开屏广告**仍未解决**。
+> 已尝试的方案、已排除项与取证步骤见 [docs/HD-OPEN-ISSUES.md](docs/HD-OPEN-ISSUES.md)。
+
 ## 构建
 
 ```bash
