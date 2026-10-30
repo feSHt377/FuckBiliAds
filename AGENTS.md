@@ -69,6 +69,24 @@ NativeHooks.hookAllMethods("Owner", Foo.class, "bar", body)    // 重载全挂
   附加信息用括号后缀（如 `（后%d条）`），不要另起一句。
 - 日志统一走 `FbaLog`，用方括号前缀分流：`[BOOT]`、`[HOOK INSTALL]`、`[HOOK REGISTRY]`、`[FILTER]`、`[UPDATE]`。
 
+### 3.1 跨端维护原则（手机版 / HD）
+
+**同一个面板、同一段功能只能有一份实现；只有"入口长在哪、怎么挂上去"按端分别维护。**
+
+| 层次 | 归属 | 例子 |
+|---|---|---|
+| 共享（唯一实现） | 与端无关的逻辑 | `FbaSettings`（设置面板）、`FbaPrefs`（开关）、`MineEntryCore`（菜单项构造、适配器取列表、`uri` 匹配、点击挂载）、`FbaLog` / `FbaRuntime` |
+| 端特定（可以分开） | 注入点定位、宿主结构差异 | `MineServiceEntry`（手机：`MenuGroup` 卡片）、`HdMineServiceEntry`（HD：左侧平铺列表 + 「更多服务」卡片） |
+
+- 新增端 = 新增一个"入口策略"并注册到 `MineServiceEntry.hook` 的分派里（现在按 `Host.isHd()` 分流），
+  **不是**把已有入口类复制一份改类名。
+- 判断标准：两处代码有 80% 相同就必须抽到共享层；复制粘贴出来的第二份会各自腐烂——
+  HD 入口就是这么来的：整套逻辑复制后，`view instanceof RecyclerView` 这条在模块与宿主
+  类身份不同时永远为 false，bug 在复制品里藏了三个版本才被发现。
+- 跨类加载器的类型判断**一律按类名/结构**做，禁止 `instanceof` 宿主侧的 androidx/宿主类
+  （`View`、`ViewGroup` 这类 boot classpath 的类除外）；现成实现见 `MineEntryCore.isRecycler`。
+- 端差异要能被一句话说清（"HD 没有竖屏 Story"），说不清的差异通常是没想清楚，不是真差异。
+
 ---
 
 ## 4. 测试约定
@@ -171,6 +189,19 @@ aapt2 dump badging FuckBiliAds-1.2.0.apk | head -1               # versionCode /
 - `README.md` **只留当前版本的要点**，不放逐版本变更史——历史进 GitHub Releases
   （用户明确要求过："README 不要再写那么多版本历史"）。
 - 变更说明写进 tag 注释（= release 正文），不要在两处各写一遍。
+- **发布说明用官方口径，只讲结果**：写"新增了什么、修复了什么、调整了什么"，面向用户；
+  不要写调查过程、排除了哪些猜测、改了哪个类/方法、加了多少行日志、踩了哪些坑。
+  每条一句话说清用户能感知的变化，必要时补一句影响范围（机型 / 版本 / 需要重启）。
+- 发布说明模板：
+
+```text
+新增：设置页可分别关闭开屏、主页、播放页、直播、关注页的广告拦截
+修复：HD 端「我的 → 更多服务」缺少模块入口、点击无法打开设置
+修复：HD 端深色模式下页面被强制显示为浅色
+修复：冷启动时开屏广告请求未被拦截
+```
+
+  预发布（`-pre`）同样按这个口径写，只在标题标注测试版，不把不确定的判断写进去。
 - 迁移/验收这类需要证据的工作，结论写进 `MIGRATION_LIBXPOSED_102.md`，
   原始证据（`current-hooks.txt`、`g1-static.txt`、`smoke-log.txt`、`callback-matrix.md`）落 `docs/migration/`。
 - 交付前给用户的测试清单放 `docs/migration/USER-TEST.md` 这类文件里，别只写在聊天里。
