@@ -13,6 +13,9 @@ import java.util.ArrayDeque;
 import java.util.Date;
 import java.util.Deque;
 import java.util.Locale;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * Event log for the whole module.
@@ -34,13 +37,27 @@ public final class FbaLog {
      * No rotated file is used, so historical entries cannot exceed this budget.
      */
     static final long MAX_BYTES = 100 * 1024L;
+    /** Trims back to this much below {@link #MAX_BYTES} so one rewrite covers
+     * many appends instead of re-trimming on every line. */
+    static final long TRIM_TARGET_BYTES = MAX_BYTES * 4 / 5;
     private static final int MAX_READ_BYTES = 256 * 1024;
     private static final int MEMORY_LINES = 500;
+    /** Maximum lines kept in the pending queue before the oldest are dropped. */
+    private static final int PENDING_LIMIT = 2000;
 
     private static final Charset UTF8 = Charset.forName("UTF-8");
 
     private static final Object LOCK = new Object();
     private static final Deque<String> MEMORY = new ArrayDeque<>();
+    /** Lines accepted by {@link #write} but not yet persisted by the worker. */
+    private static final Deque<String> PENDING = new ArrayDeque<>();
+    private static final ExecutorService IO =
+            Executors.newSingleThreadExecutor(runnable -> {
+                Thread thread = new Thread(runnable, "FbaLogIO");
+                thread.setDaemon(true);
+                return thread;
+            });
+    private static final AtomicBoolean DRAINING = new AtomicBoolean(false);
 
     private static volatile String lastError = "";
     private static volatile boolean fileOk;
@@ -68,6 +85,11 @@ public final class FbaLog {
         write("E", t == null ? message : message + " :: " + t);
     }
 
+    /**
+     * Logs one line. File I/O is always off the calling thread: hook callbacks
+     * and the story scanner run on the UI thread, where a trim + fsync per line
+     * would drop frames once the file is full.
+     */
     public static void write(String level, String message) {
         String line = stamp() + " [" + level + "] " + message;
         Log.d(TAG, message);
@@ -76,14 +98,63 @@ public final class FbaLog {
             while (MEMORY.size() > MEMORY_LINES) {
                 MEMORY.removeFirst();
             }
-        }
-        Context ctx = FbaRuntime.context();
-        if (ctx == null) {
-            synchronized (LOCK) {
-                lastError = "no application context";
+            PENDING.addLast(line);
+            while (PENDING.size() > PENDING_LIMIT) {
+                PENDING.removeFirst();
             }
-            return;
         }
+        scheduleDrain();
+    }
+
+    /** Starts the single background drain if it is not already running. */
+    private static void scheduleDrain() {
+        if (DRAINING.compareAndSet(false, true)) {
+            IO.execute(FbaLog::drain);
+        }
+    }
+
+    /** Persists queued lines in order until the queue is empty. */
+    private static void drain() {
+        try {
+            while (true) {
+                String line;
+                synchronized (LOCK) {
+                    line = PENDING.pollFirst();
+                }
+                if (line == null) {
+                    DRAINING.set(false);
+                    // Recheck to avoid losing a line appended between poll and flag clear.
+                    synchronized (LOCK) {
+                        if (PENDING.isEmpty()) {
+                            return;
+                        }
+                    }
+                    if (!DRAINING.compareAndSet(false, true)) {
+                        return;
+                    }
+                    continue;
+                }
+                Context ctx = FbaRuntime.context();
+                if (ctx == null) {
+                    synchronized (LOCK) {
+                        lastError = "no application context";
+                    }
+                    continue;
+                }
+                appendLine(ctx, line);
+            }
+        } catch (Throwable t) {
+            DRAINING.set(false);
+            synchronized (LOCK) {
+                fileOk = false;
+                lastError = String.valueOf(t);
+            }
+            // A later write will schedule a new drain; lines stay queued.
+        }
+    }
+
+    /** Writes one queued line to disk. Only called by the background worker. */
+    private static void appendLine(Context ctx, String line) {
         synchronized (LOCK) {
             FileOutputStream out = null;
             try {
@@ -93,7 +164,7 @@ public final class FbaLog {
                     return;
                 }
                 File file = new File(dir, FILE);
-                trimToBudget(file, MAX_BYTES);
+                trimToBudget(file, MAX_BYTES, TRIM_TARGET_BYTES);
                 out = new FileOutputStream(file, true);
                 out.write((line + "\n").getBytes(UTF8));
                 fileOk = true;
@@ -109,15 +180,21 @@ public final class FbaLog {
 
     /** Rewrites one file, retaining only the newest bytes within the byte budget. */
     static void trimToBudget(File file, long maxBytes) throws Exception {
+        trimToBudget(file, maxBytes, TRIM_TARGET_BYTES);
+    }
+
+    /** Rewrites one file so it ends at or below {@code targetBytes}. */
+    static void trimToBudget(File file, long maxBytes, long targetBytes) throws Exception {
         if (file == null || !file.exists() || file.length() <= maxBytes) {
             return;
         }
+        long target = Math.max(1L, Math.min(targetBytes, maxBytes));
         FileInputStream input = null;
         FileOutputStream output = null;
         File tmp = new File(file.getParentFile(), file.getName() + ".tmp");
         try {
             input = new FileInputStream(file);
-            long skip = file.length() - maxBytes;
+            long skip = file.length() - target;
             long remaining = skip;
             while (remaining > 0) {
                 long stepped = input.skip(remaining);
@@ -161,12 +238,61 @@ public final class FbaLog {
         if (ctx == null) {
             return "";
         }
+        // Snapshot the file plus any lines still queued, so the viewer and the
+        // exporter include the last few seconds even before the drain catches up.
+        String pending = pendingText();
         synchronized (LOCK) {
             String all = readFile(new File(new File(ctx.getFilesDir(), DIR), FILE), true);
+            if (!pending.isEmpty()) {
+                all = all + pending;
+            }
             if (all.length() > MAX_READ_BYTES) {
                 return all.substring(all.length() - MAX_READ_BYTES);
             }
             return all;
+        }
+    }
+
+    /** Queued lines formatted exactly as they will be written to the file. */
+    private static String pendingText() {
+        synchronized (LOCK) {
+            if (PENDING.isEmpty()) {
+                return "";
+            }
+            StringBuilder sb = new StringBuilder();
+            for (String line : PENDING) {
+                sb.append(line).append('\n');
+            }
+            return sb.toString();
+        }
+    }
+
+    /** Test hook: waits for the background writer to finish queued lines. */
+    static void flushForTest() {
+        synchronized (LOCK) {
+            if (PENDING.isEmpty()) {
+                return;
+            }
+        }
+        while (true) {
+            synchronized (LOCK) {
+                if (PENDING.isEmpty()) {
+                    break;
+                }
+            }
+            try {
+                Thread.sleep(5L);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                break;
+            }
+        }
+    }
+
+    /** Test hook: number of lines not yet written to the file. */
+    static int pendingCountForTest() {
+        synchronized (LOCK) {
+            return PENDING.size();
         }
     }
 
@@ -193,6 +319,7 @@ public final class FbaLog {
         Context ctx = FbaRuntime.context();
         synchronized (LOCK) {
             MEMORY.clear();
+            PENDING.clear();
             if (ctx == null) {
                 return;
             }

@@ -348,7 +348,6 @@ public final class StoryAdSniper {
         long lastNotAdLogAt;
         String lastDetectedId;
         String lastDiag;
-        long lastHeartbeatAt;
         boolean itemMissLogged;
 
         Host(Activity activity) {
@@ -457,12 +456,14 @@ public final class StoryAdSniper {
         }
 
         private void reportDiag(String diag) {
-            long now = System.currentTimeMillis();
-            boolean changed = !diag.equals(lastDiag);
-            if (changed || now - lastHeartbeatAt > 30_000L) {
-                lastDiag = diag;
-                lastHeartbeatAt = now;
-                FbaLog.i("story scan " + diag);
+            if (diag.equals(lastDiag)) {
+                return;
+            }
+            lastDiag = diag;
+            // The 400 ms scan runs on the UI thread. Per-swipe diagnostics are
+            // only persisted in verbose mode; normal runs keep logcat only.
+            if (FbaPrefs.verbose()) {
+                FbaLog.d("story scan " + diag);
             }
         }
 
