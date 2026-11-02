@@ -128,6 +128,11 @@ public final class StoryAdFilter {
                     if (!FbaPrefs.storyFilter()) {
                         return chain.proceed();
                     }
+                    // Replacing the host list mid-gesture re-indexes the pager and
+                    // cancels the fling; defer filtering until the list settles.
+                    if (StoryGesture.isBusy()) {
+                        return chain.proceed();
+                    }
                     Object raw = chain.getArg(index);
                     if (!(raw instanceof List)) {
                         return chain.proceed();
@@ -314,6 +319,11 @@ public final class StoryAdFilter {
             return 0;
         }
         if (!FbaPrefs.storyFilter()) {
+            return 0;
+        }
+        // Removing a card re-indexes the pager; never do it while the user is
+        // dragging or flinging, otherwise the swipe is swallowed.
+        if (StoryGesture.isScrolling(recycler)) {
             return 0;
         }
         try {

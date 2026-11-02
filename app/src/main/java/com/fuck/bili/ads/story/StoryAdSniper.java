@@ -47,10 +47,15 @@ public final class StoryAdSniper {
     private static final String STORY_PKG_PREFIX = "com.bilibili.video.story.";
     private static final String RV_CLASS = "androidx.recyclerview.widget.RecyclerView";
 
-    private static final long POLL_MS = 400L;
+    /** Fallback tick: the scroll hook drives scans while the list is touched. */
+    private static final long POLL_MS = 1000L;
     private static final long COOLDOWN_MS = 700L;
     private static final long CONFIRM_DELAY_MS = 300L;
     private static final long VERIFY_DELAY_MS = 900L;
+    /** Delay before retrying an action that was deferred by an active gesture. */
+    private static final long SETTLE_RETRY_MS = 250L;
+    /** How many times a deferred skip may wait for the fling to settle. */
+    private static final int SKIP_RETRIES = 3;
 
     /** The same card may be skipped again when the user scrolls back much later. */
     private static final long RESKIP_AFTER_MS = 120_000L;
@@ -68,6 +73,10 @@ public final class StoryAdSniper {
     private static volatile boolean ready;
     private static volatile Host current;
 
+    /** Last list handed to the scanner, used by guards that have no view at hand. */
+    private static volatile java.lang.ref.WeakReference<ViewGroup> lastRecycler =
+            new java.lang.ref.WeakReference<>(null);
+
     private StoryAdSniper() {
     }
 
@@ -81,6 +90,8 @@ public final class StoryAdSniper {
         }
         storyActivity = resolved;
         hostLoader = classLoader;
+
+        StoryGesture.install(classLoader);
 
         boolean filter = StoryAdFilter.install(classLoader);
         FbaRuntime.mark("剔除", filter);
@@ -139,6 +150,11 @@ public final class StoryAdSniper {
     public static Activity currentActivity() {
         Host host = current;
         return host == null ? null : host.activity;
+    }
+
+    /** List seen by the last scan; guards use it when they have no view. */
+    static ViewGroup currentRecycler() {
+        return lastRecycler.get();
     }
 
     // ------------------------------------------------------------- hook triggers
@@ -360,11 +376,20 @@ public final class StoryAdSniper {
             }
             running = true;
             handler.removeCallbacks(this);
+            // Scroll settles are the interesting moments; the timer is only a
+            // fallback for hosts that never report a state change.
+            StoryGesture.setListener(() -> {
+                if (!running) {
+                    return;
+                }
+                handler.postDelayed(Host.this::scanNow, 150L);
+            });
             handler.postDelayed(this, 600L);
         }
 
         void stop() {
             running = false;
+            StoryGesture.setListener(null);
             handler.removeCallbacks(this);
         }
 
@@ -373,13 +398,17 @@ public final class StoryAdSniper {
             if (!running) {
                 return;
             }
+            scanNow();
+            if (running) {
+                handler.postDelayed(this, POLL_MS);
+            }
+        }
+
+        private void scanNow() {
             try {
                 scan();
             } catch (Throwable t) {
                 FbaLog.e("story scan failed", t);
-            }
-            if (running) {
-                handler.postDelayed(this, POLL_MS);
             }
         }
 
@@ -394,6 +423,7 @@ public final class StoryAdSniper {
                 reportMissingRecycler();
                 return;
             }
+            lastRecycler = new java.lang.ref.WeakReference<>(rv);
             View child = StoryView.dominantChild(rv);
             int pos = StoryView.adapterPosition(rv, child);
             Object item = StoryView.itemOf(rv, child);
@@ -404,10 +434,16 @@ public final class StoryAdSniper {
                     + " ad=" + ad + " " + adInfo(item);
             StoryDiag.update(diag);
             reportDiag(diag);
+            // Never touch the host list or drive the pager mid-gesture: doing so
+            // cancels the in-flight fling and the swipe is lost.
+            if (StoryGesture.isScrolling(rv)) {
+                return;
+            }
             if (pos < 0) {
                 return;
             }
-            if (FbaPrefs.storyFilter() && now() - lastPruneAt > 2000L) {
+            if (FbaPrefs.storyFilter() && now() - lastPruneAt > 2000L
+                    && StoryGesture.isSettled(rv)) {
                 lastPruneAt = now();
                 StoryAdFilter.pruneAhead(activity, rv, pos);
             }
@@ -512,6 +548,10 @@ public final class StoryAdSniper {
         }
 
         private void skip(final String id, final int pos) {
+            skip(id, pos, 0);
+        }
+
+        private void skip(final String id, final int pos, final int attempt) {
             handler.postDelayed(new Runnable() {
                 @Override
                 public void run() {
@@ -522,6 +562,16 @@ public final class StoryAdSniper {
                     if (rv == null || StoryView.dominantPos(rv) != pos) {
                         // The user already moved on: do not fight the gesture.
                         pendingId = null;
+                        return;
+                    }
+                    if (StoryGesture.isScrolling(rv)) {
+                        // Let the fling settle instead of racing it; the ad is
+                        // still on screen and the next idle scan re-detects it.
+                        if (attempt < SKIP_RETRIES) {
+                            skip(id, pos, attempt + 1);
+                        } else {
+                            pendingId = null;
+                        }
                         return;
                     }
                     if (!StoryNext.toNext(rv, pos)) {
@@ -541,7 +591,7 @@ public final class StoryAdSniper {
                     }
                     verifyLater(pos, 0);
                 }
-            }, CONFIRM_DELAY_MS);
+            }, attempt == 0 ? CONFIRM_DELAY_MS : SETTLE_RETRY_MS);
         }
 
         /**
@@ -557,6 +607,10 @@ public final class StoryAdSniper {
                     }
                     ViewGroup rv = StoryView.findRecycler(activity);
                     if (rv == null) {
+                        return;
+                    }
+                    if (StoryGesture.isScrolling(rv)) {
+                        // The user took over; never force a scroll mid-gesture.
                         return;
                     }
                     int now = StoryView.dominantPos(rv);

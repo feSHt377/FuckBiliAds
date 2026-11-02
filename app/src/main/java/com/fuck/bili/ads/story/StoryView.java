@@ -28,6 +28,12 @@ final class StoryView {
     private StoryView() {
     }
 
+    /** Last resolved list per activity; the tree walk is too costly per tick. */
+    private static java.lang.ref.WeakReference<Activity> cachedActivity =
+            new java.lang.ref.WeakReference<>(null);
+    private static java.lang.ref.WeakReference<ViewGroup> cachedRecycler =
+            new java.lang.ref.WeakReference<>(null);
+
     /**
      * Picks the story list: the RecyclerView whose adapter carries card models,
      * falling back to the largest one on screen.
@@ -35,6 +41,10 @@ final class StoryView {
     static ViewGroup findRecycler(Activity activity) {
         if (activity == null) {
             return null;
+        }
+        ViewGroup cached = cachedRecycler.get();
+        if (cached != null && cachedActivity.get() == activity && cached.isAttachedToWindow()) {
+            return cached;
         }
         try {
             List<ViewGroup> candidates = new ArrayList<>();
@@ -62,6 +72,10 @@ final class StoryView {
                     bestScore = score;
                     best = rv;
                 }
+            }
+            if (best != null) {
+                cachedActivity = new java.lang.ref.WeakReference<>(activity);
+                cachedRecycler = new java.lang.ref.WeakReference<>(best);
             }
             return best;
         } catch (Throwable t) {
