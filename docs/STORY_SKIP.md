@@ -309,3 +309,22 @@ adb logcat -s FuckBiliAds
 > **9.16.1 是目前的最高实测版本**；1.0.6 已在 LSPosed 2.2.1 与 LSPatch 1.2 下验证「启动播报 / 小视频跳过 / 更多服务入口 / 分享标记」四项。
 > 其它广告位（开屏、Feed、直播间、播放页）仍由 DexKit 按类名特征定位：LSPatch 容器的 `sourceDir` 是 stub 包，
 > DexKit 扫不到真实 dex，这些广告位在容器形态下可能不生效，详见 README「兼容性」。
+
+---
+
+## 6.1 存量清理只在会话开头做（1.3.6）
+
+早期版本的 `pruneAhead` 每 2 秒扫一次后 4 条，命中就调用宿主 `remove(pos)`。
+宿主每次 remove 都会重排播放器并重新索引，实测在静置播放时表现为每 7–10 秒
+`Choreographer: Skipped 30+ frames`，即 0.5 秒左右的卡顿。
+
+问题不在扫描（很便宜），而在**播放中修改 adapter**。新批次的广告本来就会在
+`StoryPagerPlayer` 的入口被过滤，只有会话最开始那一批（早于 Hook 安装）需要清。
+因此改为：
+
+- 只在会话开始后的 **20 秒内**做存量清理，之后不再动列表；
+- 每次最多删 **1 条**（原 4 条），两次删除之间至少间隔 **1.2 秒**；
+- 仍然要求列表处于静止状态（`StoryGesture.isSettled`），拖拽/惯性期间一律跳过。
+
+对应代码：`StoryAdSniper.Host.PRUNE_WINDOW_MS`、`StoryAdFilter.MAX_PER_PASS` /
+`PRUNE_COOLDOWN_MS`。

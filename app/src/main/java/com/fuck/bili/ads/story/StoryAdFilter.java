@@ -44,7 +44,33 @@ public final class StoryAdFilter {
     private static final String PLAYER_CLASS = "com.bilibili.video.story.player.StoryPagerPlayer";
 
     /** Never remove more than this many cards in a single scan pass. */
-    private static final int MAX_PER_PASS = 4;
+    private static final int MAX_PER_PASS = 1;
+
+    /**
+     * 两次存量删除之间的最小间隔。宿主的 {@code remove(pos)} 会让播放器重新索引，
+     * 连续删多张会造成主线程整段重排；分散成单张、间隔执行，观感上更平滑。
+     */
+    private static final long PRUNE_COOLDOWN_MS = 1200L;
+    private static volatile long lastPruneRemoveAt;
+
+    /**
+     * 存量清理是否允许执行：只在会话开头的窗口内、且距上次清理足够久。
+     *
+     * <p>播放中反复调用宿主 {@code remove(pos)} 会重排播放器，实测表现为每 7–10 秒
+     * 一次 0.5 秒卡顿，所以除了时间窗，还要限制单次条数与两次删除的间隔。
+     */
+    static boolean passAllowed(long now, long sessionStartedAt, long lastPassAt,
+                               long windowMs, long minGapMs) {
+        if (now - sessionStartedAt >= windowMs) {
+            return false;
+        }
+        return now - lastPassAt >= minGapMs;
+    }
+
+    /** 两次实际删除之间至少间隔 {@link #PRUNE_COOLDOWN_MS}。 */
+    static boolean cooldownElapsed(long now, long lastRemoveAt) {
+        return now - lastRemoveAt >= PRUNE_COOLDOWN_MS;
+    }
 
     /** Prefix of the removal toast; the count is filled in at runtime. */
     private static final String TOAST_REMOVED = "已剔除 %d 个内容！FUCK BILI ADS！";
@@ -326,6 +352,9 @@ public final class StoryAdFilter {
         if (StoryGesture.isScrolling(recycler)) {
             return 0;
         }
+        if (!cooldownElapsed(System.currentTimeMillis(), lastPruneRemoveAt)) {
+            return 0;
+        }
         try {
             Object player = player(activity);
             if (player == null) {
@@ -358,6 +387,7 @@ public final class StoryAdFilter {
                 }
             }
             if (removed > 0) {
+                lastPruneRemoveAt = System.currentTimeMillis();
                 prunedTotal += removed;
                 logTypes(counts);
                 notifyRemoved(activity, counts, "存量 pos>" + currentPos, nearestBehind);

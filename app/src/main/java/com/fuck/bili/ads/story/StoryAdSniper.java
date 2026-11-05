@@ -359,6 +359,15 @@ public final class StoryAdSniper {
         /** Throttle for pruning ad cards that are already in the playlist. */
         long lastPruneAt;
 
+        /**
+         * 存量清理只在会话开头做：宿主第一批列表早于我们的 Hook 到达，需要清一次；
+         * 之后的批次都会经过 {@code StoryAdFilter} 的入口过滤，不再需要在播放中改
+         * adapter —— 周期性地 remove 会重排播放器，表现为每 7–10 秒卡半秒。
+         */
+        long startedAt = now();
+        static final long PRUNE_WINDOW_MS = 20000L;
+        boolean pruneWindowClosed;
+
         /** Diagnostics. */
         long lastMissingLogAt;
         long lastNotAdLogAt;
@@ -442,10 +451,18 @@ public final class StoryAdSniper {
             if (pos < 0) {
                 return;
             }
-            if (FbaPrefs.storyFilter() && now() - lastPruneAt > 2000L
-                    && StoryGesture.isSettled(rv)) {
+            if (FbaPrefs.storyFilter() && StoryGesture.isSettled(rv)
+                    && StoryAdFilter.passAllowed(now(), startedAt, lastPruneAt,
+                            PRUNE_WINDOW_MS, 3000L)) {
                 lastPruneAt = now();
                 StoryAdFilter.pruneAhead(activity, rv, pos);
+            }
+            if (FbaPrefs.storyFilter() && !pruneWindowClosed
+                    && now() - startedAt >= PRUNE_WINDOW_MS) {
+                // 窗口关闭后再改列表只会打断播放，这里明确留痕方便复测对账。
+                pruneWindowClosed = true;
+                FbaLog.i("story filter: prune window closed after "
+                        + PRUNE_WINDOW_MS + "ms, list left untouched");
             }
             if (item == null) {
                 if (!itemMissLogged) {
