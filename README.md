@@ -10,7 +10,7 @@
 [![stars](https://img.shields.io/github/stars/feSHt377/FuckBiliAds?label=stars&color=ff2d55)](https://github.com/feSHt377/FuckBiliAds/stargazers)
 [![downloads](https://img.shields.io/github/downloads/feSHt377/FuckBiliAds/total?color=00aeec)](https://github.com/feSHt377/FuckBiliAds/releases)
 [![xposed repo](https://img.shields.io/badge/Xposed%20Repo-listed-00aeec)](https://modules.lsposed.org/module/io.github.fesht377.biliads/)
-![host](https://img.shields.io/badge/host-9.17.0%20%2B%20HD%202.5.1-00aeec)
+![host](https://img.shields.io/badge/host-9.18.0%20%2B%20HD%202.5.1-00aeec)
 ![platform](https://img.shields.io/badge/platform-Android%208.0%2B-3ddc84)
 ![framework](https://img.shields.io/badge/LSPosed%20%2F%20LSPatch-API%20102-3ddc84)
 
@@ -57,10 +57,11 @@
 
 | 宿主 | 版本 | 状态 |
 |---|---|---|
+| 哔哩哔哩 | **9.18.0（9180300）** | ✅ 日常使用实测正常 |
 | 哔哩哔哩 | 9.17.0（9170300） | ✅ LSPatch 实测核心功能 |
 | 哔哩哔哩 | 9.16.1（9161100）、9.15.0 | ✅ 实测 |
 | 哔哩哔哩 HD | **2.5.1** | ✅ 开屏、我的页入口、播放页、信息流 |
-| 9.14 及更早 / 9.18 及更新 | — | ⚠️ 未验证 |
+| 9.14 及更早 / 9.19 及更新 | — | ⚠️ 未验证 |
 
 - Android 8.0+（minSdk 26），Xposed API 102（LSPosed 2.2.1+ 或 LSPatch）
 - 模块包名 `io.github.fesht377.biliads`
