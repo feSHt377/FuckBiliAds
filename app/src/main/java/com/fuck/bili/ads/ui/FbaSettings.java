@@ -14,6 +14,7 @@ import android.graphics.Color;
 import android.graphics.Typeface;
 import android.graphics.drawable.ColorDrawable;
 import android.graphics.drawable.GradientDrawable;
+import android.graphics.drawable.StateListDrawable;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Environment;
@@ -56,15 +57,51 @@ import java.nio.charset.Charset;
 public final class FbaSettings {
 
     private static final int ACCENT = 0xFFFB7299;
-    private static final int LIGHT_BG = 0xFFFFFFFF;
-    private static final int LIGHT_TITLE = 0xFF18191C;
-    private static final int LIGHT_SUB = 0xFF9499A0;
-    private static final int LIGHT_DIVIDER = 0x12000000;
 
-    private static final int DARK_BG = 0xFF17181A;
-    private static final int DARK_TITLE = 0xFFE3E5E7;
-    private static final int DARK_SUB = 0xFF9499A0;
-    private static final int DARK_DIVIDER = 0x1FFFFFFF;
+    /**
+     * One palette per theme. Every colour the page draws comes from here so the
+     * light and dark pages stay consistent; the values follow Bilibili's own
+     * dark surfaces instead of Android's grey defaults.
+     */
+    private static final class Theme {
+        final boolean night;
+        final int bg;
+        final int card;
+        final int stroke;
+        final int title;
+        final int sub;
+        final int divider;
+        final int accent;
+        final int track;
+        final int arrow;
+        final int band;
+
+        Theme(boolean night) {
+            this.night = night;
+            this.accent = ACCENT;
+            if (night) {
+                bg = 0xFF0E0F11;
+                card = 0xFF1A1B1E;
+                stroke = 0x1FFFFFFF;
+                title = 0xFFE3E5E7;
+                sub = 0xFF8F949C;
+                divider = 0x1AFFFFFF;
+                track = 0x4DFB7299;
+                arrow = 0xFFA9AEB6;
+                band = 0x1FFB7299;
+            } else {
+                bg = 0xFFF3F4F6;
+                card = 0xFFFFFFFF;
+                stroke = 0x0F000000;
+                title = 0xFF18191C;
+                sub = 0xFF9499A0;
+                divider = 0x12000000;
+                track = 0x33FB7299;
+                arrow = 0xFF7C828A;
+                band = 0x0FFB7299;
+            }
+        }
+    }
 
     private static final Charset UTF8 = Charset.forName("UTF-8");
 
@@ -86,10 +123,11 @@ public final class FbaSettings {
         }
         try {
             final boolean night = isNight(context);
-            final int bg = night ? DARK_BG : LIGHT_BG;
-            final int titleColor = night ? DARK_TITLE : LIGHT_TITLE;
-            final int subColor = night ? DARK_SUB : LIGHT_SUB;
-            final int divider = night ? DARK_DIVIDER : LIGHT_DIVIDER;
+            final Theme theme = new Theme(night);
+            final int bg = theme.bg;
+            final int titleColor = theme.title;
+            final int subColor = theme.sub;
+            final int divider = theme.divider;
 
             final Dialog dialog = new Dialog(context, night
                     ? android.R.style.Theme_DeviceDefault_NoActionBar
@@ -111,163 +149,134 @@ public final class FbaSettings {
             root.addView(scroll, new LinearLayout.LayoutParams(
                     ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
 
-            // ---- 广告拦截（分项开关，默认全开）----
-            content.addView(section(context, "广告拦截",
-                    "默认全部开启；关掉后对应广告恢复，重启宿主生效", subColor));
-            content.addView(switchRow(context, "跳过开屏广告",
+            // ---- 广告拦截 ----
+            LinearLayout adCard = card(context, theme);
+            cardHeader(context, adCard, theme, "广告拦截",
+                    "默认全部开启；关闭后对应广告恢复，重启宿主生效");
+            adCard.addView(switchRow(context, "跳过开屏广告",
                     "拦截商业 / 品牌 / 运营开屏请求，并隐藏已缓存的广告开屏页",
-                    FbaPrefs.blockSplash(), titleColor, subColor, divider,
-                    checked -> FbaPrefs.setBlockSplash(checked)));
-            content.addView(switchRow(context, "主页信息流广告",
+                    FbaPrefs.blockSplash(), theme, checked -> FbaPrefs.setBlockSplash(checked)));
+            adCard.addView(switchRow(context, "主页信息流广告",
                     "隐藏推荐流中的广告卡片与推广内容",
-                    FbaPrefs.blockFeed(), titleColor, subColor, divider,
-                    checked -> FbaPrefs.setBlockFeed(checked)));
-            content.addView(switchRow(context, "播放页与暂停页广告",
+                    FbaPrefs.blockFeed(), theme, checked -> FbaPrefs.setBlockFeed(checked)));
+            adCard.addView(switchRow(context, "播放页与暂停页广告",
                     "屏蔽播放页关联推广与暂停时的广告浮层",
-                    FbaPrefs.blockPlay(), titleColor, subColor, divider,
-                    checked -> FbaPrefs.setBlockPlay(checked)));
+                    FbaPrefs.blockPlay(), theme, checked -> FbaPrefs.setBlockPlay(checked)));
             if (!Host.isHd()) {
-                content.addView(switchRow(context, "直播间广告",
+                adCard.addView(switchRow(context, "直播间广告",
                         "隐藏直播间列表与房间内的推广位",
-                        FbaPrefs.blockLive(), titleColor, subColor, divider,
-                        checked -> FbaPrefs.setBlockLive(checked)));
+                        FbaPrefs.blockLive(), theme, checked -> FbaPrefs.setBlockLive(checked)));
             }
-            content.addView(switchRow(context, "关注页动态广告",
+            adCard.addView(switchRow(context, "关注页动态广告",
                     "从关注动态列表里移除广告条目",
-                    FbaPrefs.blockFollow(), titleColor, subColor, divider,
-                    checked -> FbaPrefs.setBlockFollow(checked)));
+                    FbaPrefs.blockFollow(), theme, checked -> FbaPrefs.setBlockFollow(checked)));
+            addCard(content, context, adCard);
 
             if (!Host.isHd()) {
-            // ---- 小视频广告（并入广告拦截，可展开）----
-            LinearLayout storyWrap = expandableSection(context, "小视频广告",
-                    "自动跳过或在播放列表里剔除，点击展开", titleColor, subColor);
-            LinearLayout storyBody = (LinearLayout) storyWrap.getTag();
-            content.addView(storyWrap);
-            storyBody.addView(switchRow(context, "自动跳过广告",
-                    "检测到当前条目为广告时，自动滑动到下一条",
-                    FbaPrefs.storySkip(), titleColor, subColor, divider,
-                    checked -> FbaPrefs.setStorySkip(checked)));
-            storyBody.addView(switchRow(context, "跳过时显示提示",
-                    "自动跳过后显示「检测到广告，已跳过」Toast",
-                    FbaPrefs.storyToast(), titleColor, subColor, divider,
-                    checked -> FbaPrefs.setStoryToast(checked)));
-            storyBody.addView(contentFilterGroup(context, titleColor, subColor, divider));
-            storyBody.addView(switchRow(context, "剔除时显示提示",
-                    "剔除内容后通过 Toast 显示本次剔除总数",
-                    FbaPrefs.storyFilterToast(), titleColor, subColor, divider,
-                    checked -> FbaPrefs.setStoryFilterToast(checked)));
-            storyBody.addView(switchRow(context, "显示详细剔除内容",
-                    "在提示中追加各类型数量，例如「广告 *1，直播 *2」；默认关闭",
-                    FbaPrefs.storyFilterVerbose(), titleColor, subColor, divider,
-                    checked -> FbaPrefs.setStoryFilterVerbose(checked)));
-            storyBody.addView(switchRow(context, "提示中显示内容位置",
-                    "在剔除提示后追加距当前内容的「（后 N 条）」；默认关闭",
-                    FbaPrefs.storyFilterOffset(), titleColor, subColor, divider,
-                    checked -> FbaPrefs.setStoryFilterOffset(checked)));
-            storyBody.addView(switchRow(context, "分享面板显示「标记广告」",
-                    "在小视频分享面板添加入口，将当前条目信息写入日志",
-                    FbaPrefs.shareMark(), titleColor, subColor, divider,
-                    checked -> FbaPrefs.setShareMark(checked)));
+                addCard(content, context, storyCard(context, theme));
             }
 
             // ---- 启动页 ----
-            content.addView(section(context, "启动页", "开屏外观设置，下次启动生效", subColor));
-            content.addView(actionRow(context, "启动页配色",
+            LinearLayout splashCard = card(context, theme);
+            cardHeader(context, splashCard, theme, "启动页", "开屏外观设置，下次启动生效");
+            splashCard.addView(actionRow(context, "启动页配色",
                     splashThemeLabel() + " · 可选择跟随系统、浅色或深色",
-                    titleColor, subColor, divider, v -> chooseSplashTheme(context)));
-            content.addView(switchRow(context, "隐藏品牌开屏立绘",
+                    theme, v -> chooseSplashTheme(context)));
+            splashCard.addView(switchRow(context, "隐藏品牌开屏立绘",
                     "隐藏「22娘/33娘」本地立绘，不影响广告拦截；默认关闭",
-                    FbaPrefs.brandSplashBlock(), titleColor, subColor, divider,
+                    FbaPrefs.brandSplashBlock(), theme,
                     checked -> FbaPrefs.setBrandSplashBlock(checked)));
+            splashCard.addView(switchRow(context, "启动时显示加载提示",
+                    "进入宿主后 Toast 显示各功能安装结果；默认关闭",
+                    FbaPrefs.bootToast(), theme,
+                    checked -> FbaPrefs.setBootToast(checked)));
+            addCard(content, context, splashCard);
 
-            // ---- 更新 ----
-            content.addView(section(context, "模块更新", "通过 GitHub Releases 检查新版本", subColor));
+            // ---- 模块更新 ----
+            LinearLayout updateCard = card(context, theme);
+            cardHeader(context, updateCard, theme, "模块更新", "通过 GitHub Releases 检查新版本");
             UpdateChecker.Release update = UpdateChecker.available();
             if (update != null) {
-                content.addView(updateBanner(context, update, subColor, divider));
+                updateCard.addView(updateBanner(context, update, theme));
             }
-            content.addView(switchRow(context, "启动时自动检查更新",
+            updateCard.addView(switchRow(context, "启动时自动检查更新",
                     "冷启动约 12 秒后查询一次，6 小时内不重复",
-                    FbaPrefs.updateAuto(), titleColor, subColor, divider,
-                    checked -> FbaPrefs.setUpdateAuto(checked)));
-            content.addView(switchRow(context, "接收测试版更新",
+                    FbaPrefs.updateAuto(), theme, checked -> FbaPrefs.setUpdateAuto(checked)));
+            updateCard.addView(switchRow(context, "接收测试版更新",
                     "将 pre-release 纳入更新检查；关闭后只检查正式版",
-                    FbaPrefs.updatePrerelease(), titleColor, subColor, divider,
+                    FbaPrefs.updatePrerelease(), theme,
                     checked -> FbaPrefs.setUpdatePrerelease(checked)));
-            content.addView(infoRow(context, "当前安装版本", UpdateChecker.currentVersion(),
-                    titleColor, subColor, divider));
-            content.addView(infoRow(context, "最近检查结果", UpdateChecker.latestLabel(),
-                    titleColor, subColor, divider));
-            content.addView(actionRow(context, "立即检查更新",
-                    UpdateChecker.statusHint(), titleColor, subColor, divider,
+            updateCard.addView(infoRow(context, "当前安装版本", UpdateChecker.currentVersion(), theme));
+            updateCard.addView(infoRow(context, "最近检查结果", UpdateChecker.latestLabel(), theme));
+            updateCard.addView(actionRow(context, "立即检查更新", UpdateChecker.statusHint(), theme,
                     v -> UpdateChecker.check(context, true)));
-            content.addView(actionRow(context, "查看全部版本",
-                    "打开 GitHub Releases 页面",
-                    titleColor, subColor, divider,
+            updateCard.addView(actionRow(context, "查看全部版本", "打开 GitHub Releases 页面", theme,
                     v -> UpdateChecker.openReleasePage(context)));
+            addCard(content, context, updateCard);
 
             // ---- 调试工具 ----
-            content.addView(section(context, "调试工具", "仅在排查问题时使用", subColor));
-            // 小视频相关动作只在手机版有意义，HD 没有竖屏 Story 页面。
+            LinearLayout debugCard = card(context, theme);
+            cardHeader(context, debugCard, theme, "调试工具", "仅在排查问题时使用");
             if (!Host.isHd()) {
-                content.addView(actionRow(context, "标记当前小视频条目",
-                        "将当前可见条目的 aid、cid、adInfo 写入日志",
-                        titleColor, subColor, divider, v -> markCurrent(context)));
+                debugCard.addView(actionRow(context, "标记当前小视频条目",
+                        "将当前可见条目的 aid、cid、adInfo 写入日志", theme,
+                        v -> markCurrent(context)));
             }
-            content.addView(actionRow(context, "复制当前页面诊断",
-                    "复制页面结构快照，便于反馈问题",
-                    titleColor, subColor, divider, v -> copySnapshot(context)));
-            content.addView(switchRow(context, "记录详细日志",
+            debugCard.addView(actionRow(context, "复制当前页面诊断",
+                    "复制页面结构快照，便于反馈问题", theme, v -> copySnapshot(context)));
+            debugCard.addView(switchRow(context, "记录详细日志",
                     "记录每轮可见条目判定，可能增加日志量；默认关闭",
-                    FbaPrefs.verbose(), titleColor, subColor, divider,
-                    checked -> FbaPrefs.setVerbose(checked)));
-            content.addView(actionRow(context, "测试宿主 Toast",
-                    "验证能否使用 B 站自身的 Toast 提示",
-                    titleColor, subColor, divider, v -> testToast(context)));
+                    FbaPrefs.verbose(), theme, checked -> FbaPrefs.setVerbose(checked)));
+            debugCard.addView(actionRow(context, "测试宿主 Toast",
+                    "验证能否使用 B 站自身的 Toast 提示", theme, v -> testToast(context)));
             if (!Host.isHd()) {
-                content.addView(actionRow(context, "测试广告剔除提示",
+                debugCard.addView(actionRow(context, "测试广告剔除提示",
                         FbaPrefs.storyFilterOffset()
                                 ? "模拟「已剔除 3 个内容（后 3 条）」，不修改播放列表"
                                 : "模拟「已剔除 3 个内容」，不修改播放列表",
-                        titleColor, subColor, divider,
-                        v -> StoryAdFilter.debugToast(activityOf(context), 3, 3)));
+                        theme, v -> StoryAdFilter.debugToast(activityOf(context), 3, 3)));
             }
-            content.addView(actionRow(context, "播报模块加载状态",
-                    "通过 Toast 显示各项功能的 Hook 安装结果",
-                    titleColor, subColor, divider,
+            debugCard.addView(actionRow(context, "播报模块加载状态",
+                    "通过 Toast 显示各项功能的 Hook 安装结果", theme,
                     v -> FbaRuntime.toastNow("FuckBiliAds · " + FbaRuntime.summary())));
+            addCard(content, context, debugCard);
 
             // ---- 日志管理 ----
-            content.addView(section(context, "日志管理", "查看、导出或清理模块日志", subColor));
-            content.addView(actionRow(context, "查看最近日志",
-                    lineCountHint(context), titleColor, subColor, divider,
-                    v -> showLog(context, night, bg, titleColor, subColor)));
-            content.addView(actionRow(context, "导出日志",
-                    "分享日志文本，或保存至 Download/FuckBiliAds",
-                    titleColor, subColor, divider, v -> exportLog(context)));
-            content.addView(actionRow(context, "清空日志",
-                    "删除 events.log；此操作不可撤销",
-                    titleColor, subColor, divider, v -> confirmClear(context)));
+            LinearLayout logCard = card(context, theme);
+            cardHeader(context, logCard, theme, "日志管理", "查看、导出或清理模块日志");
+            logCard.addView(actionRow(context, "查看最近日志", lineCountHint(context), theme,
+                    v -> showLog(context, night, theme)));
+            logCard.addView(actionRow(context, "导出日志",
+                    "分享日志文本，或保存至 Download/FuckBiliAds", theme,
+                    v -> exportLog(context)));
+            logCard.addView(actionRow(context, "清空日志",
+                    "删除 events.log；此操作不可撤销", theme,
+                    v -> confirmClear(context)));
+            addCard(content, context, logCard);
 
             // ---- 运行诊断 ----
-            content.addView(section(context, "运行诊断", "本次启动后的模块运行状态", subColor));
-            content.addView(infoRow(context, "Hook 安装状态", FbaRuntime.summary(), titleColor, subColor, divider));
+            LinearLayout diagCard = card(context, theme);
+            cardHeader(context, diagCard, theme, "运行诊断", "本次启动后的模块运行状态");
+            diagCard.addView(infoRow(context, "Hook 安装状态", FbaRuntime.summary(), theme));
             if (!Host.isHd()) {
-                content.addView(infoRow(context, "小视频页面扫描", StoryDiag.describe(), titleColor, subColor, divider));
-                content.addView(infoRow(context, "广告剔除统计", StoryAdFilter.stats(), titleColor, subColor, divider));
+                diagCard.addView(infoRow(context, "小视频页面扫描", StoryDiag.describe(), theme));
+                diagCard.addView(infoRow(context, "广告剔除统计", StoryAdFilter.stats(), theme));
             }
-            content.addView(infoRow(context, "日志文件状态", FbaLog.fileOk() ? "正常写入" : ("写入失败：" + FbaLog.lastError()),
-                    titleColor, subColor, divider));
+            diagCard.addView(infoRow(context, "日志文件状态",
+                    FbaLog.fileOk() ? "正常写入" : ("写入失败：" + FbaLog.lastError()), theme));
+            addCard(content, context, diagCard);
 
-            // ---- 关于 ----
-            content.addView(section(context, "关于模块", null, subColor));
-            content.addView(infoRow(context, "模块版本", versionName(context), titleColor, subColor, divider));
-            content.addView(infoRow(context, "宿主版本", hostVersion(context), titleColor, subColor, divider));
-            content.addView(infoRow(context, "小视频 Hook", StoryAdSniper.isReady() ? "已就绪" : "未就绪",
-                    titleColor, subColor, divider));
+            // ---- 关于模块 ----
+            LinearLayout aboutCard = card(context, theme);
+            cardHeader(context, aboutCard, theme, "关于模块", null);
+            aboutCard.addView(infoRow(context, "模块版本", versionName(context), theme));
+            aboutCard.addView(infoRow(context, "宿主版本", hostVersion(context), theme));
+            aboutCard.addView(infoRow(context, "小视频 Hook",
+                    StoryAdSniper.isReady() ? "已就绪" : "未就绪", theme));
             File log = FbaLog.file();
-            content.addView(infoRow(context, "日志保存路径",
-                    log == null ? "-" : log.getAbsolutePath(), titleColor, subColor, divider));
+            aboutCard.addView(infoRow(context, "日志保存路径",
+                    log == null ? "-" : log.getAbsolutePath(), theme));
+            addCard(content, context, aboutCard);
 
             dialog.setContentView(root);
             Window window = dialog.getWindow();
@@ -333,30 +342,195 @@ public final class FbaSettings {
         return bar;
     }
 
-    // ------------------------------------------------------------------- rows
+    // ------------------------------------------------------------------- cards
 
-    /** Expandable multi-select group sharing the playlist filter with ad removal. */
-    private static View contentFilterGroup(Context context, int titleColor, int subColor, int divider) {
+    private static LinearLayout card(Context context, Theme t) {
+        LinearLayout box = new LinearLayout(context);
+        box.setOrientation(LinearLayout.VERTICAL);
+        GradientDrawable shape = new GradientDrawable();
+        shape.setColor(t.card);
+        shape.setCornerRadius(dp(context, 14));
+        shape.setStroke(Math.max(1, dp(context, 0.5f)), t.stroke);
+        box.setBackground(shape);
+        return box;
+    }
+
+    private static void addCard(LinearLayout content, Context context, View card) {
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        lp.leftMargin = dp(context, 12);
+        lp.rightMargin = dp(context, 12);
+        lp.topMargin = dp(context, 12);
+        content.addView(card, lp);
+    }
+
+    private static void cardHeader(Context context, LinearLayout card, Theme t,
+                                   String title, String subtitle) {
+        LinearLayout head = new LinearLayout(context);
+        head.setOrientation(LinearLayout.VERTICAL);
+        head.setPadding(dp(context, 16), dp(context, 14), dp(context, 16), dp(context, 8));
+
+        TextView name = new TextView(context);
+        name.setText(title);
+        name.setTextSize(TypedValue.COMPLEX_UNIT_SP, 15);
+        name.setTypeface(Typeface.DEFAULT_BOLD);
+        name.setTextColor(t.title);
+        head.addView(name);
+
+        if (!TextUtils.isEmpty(subtitle)) {
+            TextView hint = new TextView(context);
+            hint.setText(subtitle);
+            hint.setTextSize(TypedValue.COMPLEX_UNIT_SP, 11);
+            hint.setTextColor(t.sub);
+            hint.setPadding(0, dp(context, 3), 0, 0);
+            head.addView(hint);
+        }
+        card.addView(head);
+    }
+
+    /**
+     * 小视频设置：三个关键开关直接露出，「剔除时显示提示」单独高亮并标注可关闭，
+     * 细节项收进「更多选项」，避免用户找不到或误以为没有开关。
+     */
+    private static View storyCard(Context context, Theme t) {
+        LinearLayout box = card(context, t);
+        cardHeader(context, box, t, "小视频广告",
+                "自动跳过、剔除与提示；提示可随时关闭");
+
+        box.addView(switchRow(context, "自动跳过广告",
+                "检测到当前条目为广告时，自动滑动到下一条",
+                FbaPrefs.storySkip(), t, checked -> FbaPrefs.setStorySkip(checked)));
+        box.addView(switchRow(context, "跳过时显示提示",
+                "自动跳过后显示「检测到广告，已跳过」Toast",
+                FbaPrefs.storyToast(), t, checked -> FbaPrefs.setStoryToast(checked)));
+
+        final Switch filterSwitch = newSwitch(context, t);
+        filterSwitch.setChecked(FbaPrefs.storyFilter());
+        box.addView(row(context, "从播放列表剔除广告（实验）",
+                "在列表入口摘掉广告卡，不再进入播放列表",
+                filterSwitch, t, null));
+
+        final Switch toneSwitch = newSwitch(context, t);
+        toneSwitch.setChecked(FbaPrefs.storyFilterToast());
+        box.addView(highlightedRow(context, "剔除时显示提示",
+                "每次剔除后用 Toast 报告数量；默认关闭，可在此开启",
+                toneSwitch, t));
+
+        final LinearLayout more = collapsibleBody(context);
+        more.addView(switchRow(context, "显示详细剔除内容",
+                "在提示中追加各类型数量，例如「广告 *1，直播 *2」；默认关闭",
+                FbaPrefs.storyFilterVerbose(), t,
+                checked -> FbaPrefs.setStoryFilterVerbose(checked)));
+        more.addView(switchRow(context, "提示中显示内容位置",
+                "在剔除提示后追加距当前内容的「（后 N 条）」；默认关闭",
+                FbaPrefs.storyFilterOffset(), t,
+                checked -> FbaPrefs.setStoryFilterOffset(checked)));
+        more.addView(contentFilterOptions(context, t, filterSwitch.isChecked()));
+        more.addView(switchRow(context, "分享面板显示「标记广告」",
+                "在小视频分享面板添加入口，将当前条目信息写入日志",
+                FbaPrefs.shareMark(), t, checked -> FbaPrefs.setShareMark(checked)));
+        box.addView(collapsible(context, t, "更多选项", "详细提示、自定义剔除类型、分享入口", more));
+
+        filterSwitch.setOnCheckedChangeListener((button, value) -> {
+            FbaPrefs.setStoryFilter(value);
+            FbaLog.i("pref 从列表剔除广告及所选内容 = " + value);
+            toneSwitch.setEnabled(value);
+        });
+        toneSwitch.setEnabled(filterSwitch.isChecked());
+        toneSwitch.setOnCheckedChangeListener((button, value) -> {
+            FbaPrefs.setStoryFilterToast(value);
+            FbaLog.i("pref 剔除时显示提示 = " + value);
+        });
+        return box;
+    }
+
+    /** 高亮行：浅色底 + 左侧强调色竖条，用于「容易被忽略但可关闭」的开关。 */
+    private static View highlightedRow(Context context, String title, String subtitle,
+                                       View right, Theme t) {
+        LinearLayout wrap = new LinearLayout(context);
+        wrap.setOrientation(LinearLayout.HORIZONTAL);
+        wrap.setBackgroundColor(t.band);
+
+        View bar = new View(context);
+        bar.setBackgroundColor(ACCENT);
+        wrap.addView(bar, new LinearLayout.LayoutParams(dp(context, 3),
+                ViewGroup.LayoutParams.MATCH_PARENT));
+        wrap.addView(row(context, title, subtitle, right, t, null),
+                new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        return wrap;
+    }
+
+    private static LinearLayout collapsibleBody(Context context) {
+        LinearLayout body = new LinearLayout(context);
+        body.setOrientation(LinearLayout.VERTICAL);
+        body.setVisibility(View.GONE);
+        return body;
+    }
+
+    private static View collapsible(Context context, Theme t, String title,
+                                    String subtitle, final View body) {
+        LinearLayout wrap = new LinearLayout(context);
+        wrap.setOrientation(LinearLayout.VERTICAL);
+
+        final LinearLayout head = new LinearLayout(context);
+        head.setOrientation(LinearLayout.HORIZONTAL);
+        head.setGravity(Gravity.CENTER_VERTICAL);
+        head.setPadding(dp(context, 16), dp(context, 12), dp(context, 16), dp(context, 12));
+        head.setClickable(true);
+        head.setFocusable(true);
+
+        LinearLayout texts = new LinearLayout(context);
+        texts.setOrientation(LinearLayout.VERTICAL);
+        TextView name = new TextView(context);
+        name.setText(title);
+        name.setTextSize(TypedValue.COMPLEX_UNIT_SP, 15);
+        name.setTextColor(t.title);
+        texts.addView(name);
+        TextView hint = new TextView(context);
+        hint.setText(subtitle);
+        hint.setTextSize(TypedValue.COMPLEX_UNIT_SP, 11);
+        hint.setTextColor(t.sub);
+        hint.setPadding(0, dp(context, 2), 0, 0);
+        texts.addView(hint);
+        head.addView(texts, new LinearLayout.LayoutParams(0,
+                ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+
+        final TextView arrow = new TextView(context);
+        arrow.setText("▾");
+        arrow.setTextSize(TypedValue.COMPLEX_UNIT_SP, 16);
+        arrow.setTextColor(t.arrow);
+        head.addView(arrow);
+
+        head.setOnClickListener(v -> {
+            boolean show = body.getVisibility() != View.VISIBLE;
+            body.setVisibility(show ? View.VISIBLE : View.GONE);
+            arrow.setText(show ? "▴" : "▾");
+        });
+
+        wrap.addView(head);
+        wrap.addView(body);
+        return wrap;
+    }
+
+    /** 剔除类型多选：依附于上面的「剔除」开关，关闭时整体置灰。 */
+    private static View contentFilterOptions(Context context, Theme t, boolean enabled) {
         LinearLayout group = new LinearLayout(context);
         group.setOrientation(LinearLayout.VERTICAL);
+        group.setPadding(dp(context, 16), dp(context, 8), dp(context, 16), dp(context, 4));
 
-        LinearLayout options = new LinearLayout(context);
-        options.setOrientation(LinearLayout.VERTICAL);
-        options.setVisibility(View.GONE);
-        TextView arrow = new TextView(context);
-        arrow.setTextSize(TypedValue.COMPLEX_UNIT_SP, 18);
-        arrow.setTextColor(subColor);
+        TextView title = new TextView(context);
+        title.setText("自定义剔除类型");
+        title.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
+        title.setTypeface(Typeface.DEFAULT_BOLD);
+        title.setTextColor(t.title);
+        group.addView(title);
 
-        TextView summary = new TextView(context);
-        summary.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
-        summary.setTextColor(subColor);
-        summary.setPadding(dp(context, 16), dp(context, 2), dp(context, 16), dp(context, 8));
-
-        View header = row(context, "自定义剔除内容", "展开后选择要从竖屏列表剔除的类型", arrow,
-                titleColor, subColor, divider, null);
-        group.addView(header);
-        group.addView(summary);
-        group.addView(options);
+        TextView hint = new TextView(context);
+        hint.setText("广告默认勾选；其余类型按需开启，当前播放的条目不会被移除");
+        hint.setTextSize(TypedValue.COMPLEX_UNIT_SP, 11);
+        hint.setTextColor(t.sub);
+        hint.setPadding(0, dp(context, 3), 0, dp(context, 4));
+        group.addView(hint);
 
         final int[] bits = {StoryContentFilter.AD, StoryContentFilter.LIVE,
                 StoryContentFilter.PGC, StoryContentFilter.COURSE, StoryContentFilter.PREVIEW};
@@ -364,65 +538,33 @@ public final class FbaSettings {
         final String[] descriptions = {"adInfo.feedIsAd", "vertical_live", "vertical_pgc",
                 "vertical_course", "vertical_preview_av"};
 
-        Switch master = new Switch(context);
-        master.setThumbTintList(ColorStateList.valueOf(ACCENT));
-        master.setTrackTintList(ColorStateList.valueOf(0x66FB7299));
-        master.setChecked(FbaPrefs.storyFilter());
-        master.setOnCheckedChangeListener((button, checked) -> {
-            FbaPrefs.setStoryFilter(checked);
-            updateFilterState(master, options, summary);
-            FbaLog.i("pref 从列表剔除广告及所选内容 = " + checked);
-        });
-        View masterRow = row(context, "从列表剔除广告及所选内容 · 实验",
-                "开启后按下方选择过滤竖屏推荐；广告默认勾选。关闭后保留自动跳过，所选类型不移除",
-                master, titleColor, subColor, divider, null);
-        group.addView(masterRow, 0);
-
         for (int i = 0; i < bits.length; i++) {
             final int bit = bits[i];
             CheckBox check = new CheckBox(context);
             check.setText(labels[i] + "  ·  " + descriptions[i]);
             check.setTextSize(TypedValue.COMPLEX_UNIT_SP, 14);
-            check.setTextColor(titleColor);
+            check.setTextColor(t.title);
             check.setButtonTintList(ColorStateList.valueOf(ACCENT));
-            check.setPadding(dp(context, 12), dp(context, 8), dp(context, 12), dp(context, 8));
+            check.setPadding(dp(context, 4), dp(context, 6), dp(context, 4), dp(context, 6));
             check.setChecked((FbaPrefs.storyContentMask() & bit) != 0);
+            check.setEnabled(enabled);
             check.setOnCheckedChangeListener((button, checked) -> {
                 int mask = FbaPrefs.storyContentMask();
                 FbaPrefs.setStoryContentMask(checked ? mask | bit : mask & ~bit);
-                if (master.isChecked()) {
-                    summary.setText(contentFilterSummary());
-                }
                 FbaLog.i("pref 自定义剔除内容 = " + contentFilterSummary());
             });
-            options.addView(check);
+            group.addView(check);
         }
-
-        TextView note = new TextView(context);
-        note.setText("除广告外的类型默认不勾选；当前正在播放的条目不会被移除。");
-        note.setTextSize(TypedValue.COMPLEX_UNIT_SP, 11);
-        note.setTextColor(subColor);
-        note.setPadding(dp(context, 16), dp(context, 4), dp(context, 16), dp(context, 12));
-        options.addView(note);
-        summary.setText(contentFilterSummary());
-
-        header.setOnClickListener(v -> {
-            boolean expand = options.getVisibility() != View.VISIBLE;
-            options.setVisibility(expand ? View.VISIBLE : View.GONE);
-            summary.setVisibility(expand ? View.GONE : View.VISIBLE);
-            arrow.setText(expand ? "⌃" : "⌄");
-        });
-        arrow.setText("⌄");
-        updateFilterState(master, options, summary);
+        group.setAlpha(enabled ? 1f : 0.45f);
         return group;
     }
 
     private static String contentFilterSummary() {
         int mask = FbaPrefs.storyContentMask();
         if (mask == 0) {
-            return "广告 · 点击展开选择更多类型";
+            return "未选择类型";
         }
-        StringBuilder text = new StringBuilder("已选 ");
+        StringBuilder text = new StringBuilder();
         int count = 0;
         int[] bits = {StoryContentFilter.AD, StoryContentFilter.LIVE, StoryContentFilter.PGC,
                 StoryContentFilter.COURSE, StoryContentFilter.PREVIEW};
@@ -434,146 +576,72 @@ public final class FbaSettings {
                 text.append(StoryContentFilter.label(bit));
             }
         }
-        return text.append(" · 点击修改").toString();
-    }
-
-    private static void updateFilterState(Switch master, ViewGroup options, TextView summary) {
-        boolean enabled = master.isChecked();
-        options.setAlpha(enabled ? 1f : 0.45f);
-        int count = options.getChildCount();
-        for (int i = 0; i < count; i++) {
-            View child = options.getChildAt(i);
-            if (child instanceof CheckBox) {
-                child.setEnabled(enabled);
-            }
-        }
-        if (!enabled) {
-            summary.setText("已关闭 · 所选内容不会从列表剔除");
-        } else {
-            summary.setText(contentFilterSummary());
-        }
+        return text.toString();
     }
 
     private interface OnSwitch {
         void onChanged(boolean checked);
     }
 
-    private static View section(Context context, String text, String subtitle, int subColor) {
-        LinearLayout group = new LinearLayout(context);
-        group.setOrientation(LinearLayout.VERTICAL);
-        group.setPadding(dp(context, 16), dp(context, 22), dp(context, 16), dp(context, 6));
-
-        TextView title = new TextView(context);
-        title.setText(text);
-        title.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
-        title.setTypeface(Typeface.DEFAULT_BOLD);
-        title.setTextColor(ACCENT);
-        group.addView(title);
-
-        if (!TextUtils.isEmpty(subtitle)) {
-            TextView description = new TextView(context);
-            description.setText(subtitle);
-            description.setTextSize(TypedValue.COMPLEX_UNIT_SP, 11);
-            description.setTextColor(subColor);
-            description.setPadding(0, dp(context, 2), 0, 0);
-            group.addView(description);
-        }
-        return group;
-    }
-
-    /** 可展开的子分组：标题行点击展开/收起，内容放在返回容器的 tag 里。 */
-    private static LinearLayout expandableSection(Context context, String title, String subtitle,
-                                                  int titleColor, int subColor) {
-        LinearLayout wrap = new LinearLayout(context);
-        wrap.setOrientation(LinearLayout.VERTICAL);
-
-        LinearLayout header = new LinearLayout(context);
-        header.setOrientation(LinearLayout.HORIZONTAL);
-        header.setGravity(Gravity.CENTER_VERTICAL);
-        header.setPadding(dp(context, 20), dp(context, 14), dp(context, 20), dp(context, 10));
-        header.setClickable(true);
-
-        TextView name = new TextView(context);
-        name.setText(title);
-        name.setTextSize(TypedValue.COMPLEX_UNIT_SP, 15);
-        name.setTextColor(titleColor);
-        header.addView(name, new LinearLayout.LayoutParams(0,
-                ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
-
-        final TextView arrow = new TextView(context);
-        arrow.setText("▾");
-        arrow.setTextSize(TypedValue.COMPLEX_UNIT_SP, 14);
-        arrow.setTextColor(subColor);
-        header.addView(arrow);
-
-        TextView hint = new TextView(context);
-        hint.setText(subtitle);
-        hint.setTextSize(TypedValue.COMPLEX_UNIT_SP, 11);
-        hint.setTextColor(subColor);
-        hint.setPadding(dp(context, 20), 0, dp(context, 20), dp(context, 6));
-
-        final LinearLayout body = new LinearLayout(context);
-        body.setOrientation(LinearLayout.VERTICAL);
-        body.setVisibility(View.GONE);
-
-        header.setOnClickListener(v -> {
-            boolean show = body.getVisibility() != View.VISIBLE;
-            body.setVisibility(show ? View.VISIBLE : View.GONE);
-            arrow.setText(show ? "▴" : "▾");
-        });
-
-        wrap.addView(header);
-        wrap.addView(hint);
-        wrap.addView(body);
-        wrap.setTag(body);
-        return wrap;
+    private static Switch newSwitch(Context context, Theme t) {
+        Switch toggle = new Switch(context);
+        // The platform draws its "on" track at ~30% alpha, which reads as washed
+        // out; use a solid pill so the enabled state is unmistakable.
+        GradientDrawable on = new GradientDrawable();
+        on.setColor(ACCENT);
+        on.setCornerRadius(dp(context, 16));
+        GradientDrawable off = new GradientDrawable();
+        off.setColor(t.night ? 0xFF3C4046 : 0xFFD5D9DE);
+        off.setCornerRadius(dp(context, 16));
+        StateListDrawable track = new StateListDrawable();
+        track.addState(new int[]{android.R.attr.state_checked}, on);
+        track.addState(new int[]{}, off);
+        toggle.setTrackDrawable(track);
+        toggle.setThumbTintList(ColorStateList.valueOf(0xFFFFFFFF));
+        return toggle;
     }
 
     private static View switchRow(Context context, String title, String subtitle,
-                                  boolean checked, int titleColor, int subColor, int divider,
-                                  final OnSwitch listener) {
-        Switch toggle = new Switch(context);
+                                  boolean checked, Theme t, final OnSwitch listener) {
+        Switch toggle = newSwitch(context, t);
         toggle.setChecked(checked);
-        toggle.setThumbTintList(ColorStateList.valueOf(ACCENT));
-        toggle.setTrackTintList(ColorStateList.valueOf(0x66FB7299));
         toggle.setOnCheckedChangeListener((button, value) -> {
             listener.onChanged(value);
             FbaLog.i("pref " + title + " = " + value);
         });
-        return row(context, title, subtitle, toggle, titleColor, subColor, divider, null);
+        return row(context, title, subtitle, toggle, t, null);
     }
 
     private static View actionRow(Context context, String title, String subtitle,
-                                  int titleColor, int subColor, int divider, View.OnClickListener click) {
+                                  Theme t, View.OnClickListener click) {
         TextView arrow = new TextView(context);
         arrow.setText("›");
-        arrow.setTextSize(TypedValue.COMPLEX_UNIT_SP, 20);
-        arrow.setTextColor(subColor);
-        return row(context, title, subtitle, arrow, titleColor, subColor, divider, click);
+        arrow.setTextSize(TypedValue.COMPLEX_UNIT_SP, 22);
+        arrow.setTextColor(t.arrow);
+        return row(context, title, subtitle, arrow, t, click);
     }
 
-    private static View infoRow(Context context, String title, String value,
-                                int titleColor, int subColor, int divider) {
+    private static View infoRow(Context context, String title, String value, Theme t) {
         TextView tv = new TextView(context);
         tv.setText(value);
         tv.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
-        tv.setTextColor(subColor);
+        tv.setTextColor(t.sub);
         tv.setSingleLine(true);
         tv.setEllipsize(TextUtils.TruncateAt.MIDDLE);
         tv.setMaxWidth(dp(context, 200));
-        return row(context, title, null, tv, titleColor, subColor, divider, null);
+        return row(context, title, null, tv, t, null);
     }
 
     /** Accent banner with the "前往下载" button, only when a newer release exists. */
-    private static View updateBanner(final Context context, final UpdateChecker.Release release,
-                                     int subColor, int divider) {
+    private static View updateBanner(final Context context,
+                                     final UpdateChecker.Release release, Theme t) {
         LinearLayout wrap = new LinearLayout(context);
         wrap.setOrientation(LinearLayout.VERTICAL);
 
         LinearLayout banner = new LinearLayout(context);
         banner.setOrientation(LinearLayout.HORIZONTAL);
         banner.setGravity(Gravity.CENTER_VERTICAL);
-        banner.setBackgroundColor(0x12FB7299);
+        banner.setBackgroundColor(t.band);
         banner.setPadding(dp(context, 16), dp(context, 14), dp(context, 16), dp(context, 14));
 
         LinearLayout texts = new LinearLayout(context);
@@ -591,7 +659,7 @@ public final class FbaSettings {
         TextView sub = new TextView(context);
         sub.setText(release.channel() + " · " + release.dateText());
         sub.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
-        sub.setTextColor(subColor);
+        sub.setTextColor(t.sub);
         sub.setPadding(0, dp(context, 2), 0, 0);
         texts.addView(sub);
         banner.addView(texts);
@@ -608,7 +676,7 @@ public final class FbaSettings {
         wrap.addView(banner);
 
         View lineDivider = new View(context);
-        lineDivider.setBackgroundColor(divider);
+        lineDivider.setBackgroundColor(t.divider);
         LinearLayout.LayoutParams dividerParams = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, Math.max(1, dp(context, 0.5f)));
         dividerParams.leftMargin = dp(context, 16);
@@ -634,7 +702,7 @@ public final class FbaSettings {
     }
 
     private static View row(final Context context, String title, String subtitle, View right,
-                            int titleColor, int subColor, int divider, View.OnClickListener click) {
+                            Theme t, View.OnClickListener click) {
         LinearLayout wrap = new LinearLayout(context);
         wrap.setOrientation(LinearLayout.VERTICAL);
 
@@ -652,14 +720,14 @@ public final class FbaSettings {
         TextView titleView = new TextView(context);
         titleView.setText(title);
         titleView.setTextSize(TypedValue.COMPLEX_UNIT_SP, 15);
-        titleView.setTextColor(titleColor);
+        titleView.setTextColor(t.title);
         texts.addView(titleView);
 
         if (!TextUtils.isEmpty(subtitle)) {
             TextView subView = new TextView(context);
             subView.setText(subtitle);
             subView.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
-            subView.setTextColor(subColor);
+            subView.setTextColor(t.sub);
             subView.setPadding(0, dp(context, 2), 0, 0);
             texts.addView(subView);
         }
@@ -679,7 +747,7 @@ public final class FbaSettings {
         }
 
         View lineDivider = new View(context);
-        lineDivider.setBackgroundColor(divider);
+        lineDivider.setBackgroundColor(t.divider);
         LinearLayout.LayoutParams dividerParams = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, Math.max(1, dp(context, 0.5f)));
         dividerParams.leftMargin = dp(context, 16);
@@ -768,7 +836,7 @@ public final class FbaSettings {
                 .show();
     }
 
-    private static void showLog(Context context, boolean night, int bg, int titleColor, int subColor) {
+    private static void showLog(Context context, boolean night, Theme t) {
         String content = logText();
         if (content.isEmpty()) {
             Toast.makeText(context, "暂无日志", Toast.LENGTH_SHORT).show();
@@ -776,12 +844,12 @@ public final class FbaSettings {
         }
         LinearLayout root = new LinearLayout(context);
         root.setOrientation(LinearLayout.VERTICAL);
-        root.setBackgroundColor(bg);
+        root.setBackgroundColor(t.bg);
 
         TextView title = new TextView(context);
         title.setText("最近日志");
         title.setTextSize(TypedValue.COMPLEX_UNIT_SP, 16);
-        title.setTextColor(titleColor);
+        title.setTextColor(t.title);
         title.setPadding(dp(context, 16), statusBarHeight(context) + dp(context, 12),
                 dp(context, 16), dp(context, 8));
         root.addView(title);
@@ -790,7 +858,7 @@ public final class FbaSettings {
         TextView body = new TextView(context);
         body.setText(content);
         body.setTextSize(TypedValue.COMPLEX_UNIT_SP, 11);
-        body.setTextColor(subColor);
+        body.setTextColor(t.sub);
         body.setTypeface(Typeface.MONOSPACE);
         body.setPadding(dp(context, 16), dp(context, 8), dp(context, 16), dp(context, 16));
         body.setTextIsSelectable(true);
@@ -817,7 +885,7 @@ public final class FbaSettings {
         dialog.setContentView(root);
         Window window = dialog.getWindow();
         if (window != null) {
-            window.setBackgroundDrawable(new ColorDrawable(bg));
+            window.setBackgroundDrawable(new ColorDrawable(t.bg));
         }
         dialog.show();
         if (window != null) {

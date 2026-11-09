@@ -196,6 +196,9 @@ public final class FbaRuntime {
                         return;
                     }
                     announced = true;
+                    if (!FbaPrefs.bootToast()) {
+                        return;
+                    }
                     toast(ctx, "FuckBiliAds 已加载 · " + summary());
                 }
             }, delayMs);

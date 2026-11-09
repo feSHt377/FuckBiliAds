@@ -28,6 +28,8 @@ public final class FbaPrefs {
     private static final String KEY_SHARE_MARK = "share_mark";
     private static final String KEY_SPLASH_THEME = "splash_theme";
     private static final String KEY_BRAND_SPLASH_BLOCK = "brand_splash_block";
+    /** "已加载 · …" toast on host start; off by default. */
+    private static final String KEY_BOOT_TOAST = "boot_toast";
 
     // ---- 广告拦截分项开关：默认全开（保持原有行为），可单独关掉 ----
     private static final String KEY_BLOCK_SPLASH = "block_splash";
@@ -94,9 +96,9 @@ public final class FbaPrefs {
         putBoolean(KEY_STORY_FILTER, value);
     }
 
-    /** Toast how many ad cards were dropped from the playlist. */
+    /** Toast how many ad cards were dropped from the playlist; off by default. */
     public static boolean storyFilterToast() {
-        return getBoolean(KEY_STORY_FILTER_TOAST, true);
+        return getBoolean(KEY_STORY_FILTER_TOAST, false);
     }
 
     public static void setStoryFilterToast(boolean value) {
@@ -165,6 +167,15 @@ public final class FbaPrefs {
 
     public static void setBrandSplashBlock(boolean value) {
         putBoolean(KEY_BRAND_SPLASH_BLOCK, value);
+    }
+
+    /** "已加载 · …" toast when the host starts; noisy, so off by default. */
+    public static boolean bootToast() {
+        return getBoolean(KEY_BOOT_TOAST, false);
+    }
+
+    public static void setBootToast(boolean value) {
+        putBoolean(KEY_BOOT_TOAST, value);
     }
     /** Resolved night flag for the startup page. */
     public static boolean splashNight() {
