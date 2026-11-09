@@ -4,7 +4,6 @@ import android.content.Context;
 import android.content.pm.ApplicationInfo;
 import android.content.pm.PackageInfo;
 import android.util.AttributeSet;
-import android.view.GestureDetector;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.TextView;
@@ -24,7 +23,6 @@ import com.fuck.bili.ads.ui.UpdateChecker;
 
 import java.lang.reflect.Constructor;
 import java.lang.reflect.Method;
-import java.util.WeakHashMap;
 
 import io.github.libxposed.api.XposedModule;
 import io.github.libxposed.api.XposedModuleInterface;
@@ -253,10 +251,17 @@ public class MainHook extends XposedModule {
         DanmuSenderLookup.hook(packageName, Host.processName(), classLoader, helper);
     }
 
+    /**
+     * Adds "long press to copy the description" without touching gesture dispatch.
+     *
+     * <p>Older builds replaced the TextView's movement method and consumed every
+     * touch event, which broke ClickableSpan tags and made the description a
+     * scroll dead zone. Only a long-click listener is installed now: the host's
+     * LinkMovementMethod, click handling and parent scrolling stay untouched.
+     */
     private static void descCopyFix(ClassLoader classLoader, DexKitHelper helper) {
         try {
-            final WeakHashMap<View, GestureDetector> gestureDetectorMap = new WeakHashMap<>();
-            Class<?> type = Reflect.findClass(helper.DESCRIPTION_TEXTVIEW_CLASS_NAME, classLoader);
+            final Class<?> type = Reflect.findClass(helper.DESCRIPTION_TEXTVIEW_CLASS_NAME, classLoader);
 
             Constructor<?> constructor = type.getDeclaredConstructor(
                     Context.class, AttributeSet.class, int.class);
@@ -264,90 +269,54 @@ public class MainHook extends XposedModule {
             NativeHooks.hook("MainHook.DescriptionConstructor", constructor, chain -> {
                 Object result = chain.proceed();
                 TextView tv = (TextView) chain.getThisObject();
-                tv.setTextIsSelectable(true);
-                tv.setFocusable(true);
-                tv.setFocusableInTouchMode(true);
+                // Enables the long-press gesture only; movement method, click
+                // handling and parent scrolling are left exactly as the host set them.
                 tv.setLongClickable(true);
-                tv.setMovementMethod(android.text.method.ArrowKeyMovementMethod.getInstance());
                 return result;
             });
 
-            Method onTouch = NativeHooks.method(type, "onTouchEvent", android.view.MotionEvent.class);
-            NativeHooks.hook("MainHook.DescriptionTouch", onTouch, chain -> {
-                final TextView tv = (TextView) chain.getThisObject();
-                android.view.MotionEvent event = (android.view.MotionEvent) chain.getArg(0);
-                int action = event.getActionMasked();
-                if (action == android.view.MotionEvent.ACTION_DOWN) {
-                    tv.requestFocus();
-                    if (tv.getParent() != null) {
-                        tv.getParent().requestDisallowInterceptTouchEvent(true);
-                    }
+            // Only act when the host itself did not consume the long click, so a
+            // host-provided menu keeps working.
+            Method longClick = NativeHooks.method(View.class, "performLongClick");
+            NativeHooks.hook("MainHook.DescriptionLongClick", longClick, chain -> {
+                Object result = chain.proceed();
+                Object self = chain.getThisObject();
+                if (Boolean.TRUE.equals(result) || !type.isInstance(self)) {
+                    return result;
                 }
-
-                Object editorObj = null;
-                try {
-                    java.lang.reflect.Field editorField = TextView.class.getDeclaredField("mEditor");
-                    editorField.setAccessible(true);
-                    editorObj = editorField.get(tv);
-                    if (editorObj != null) {
-                        Method onTouchMethod = editorObj.getClass()
-                                .getDeclaredMethod("onTouchEvent", android.view.MotionEvent.class);
-                        onTouchMethod.setAccessible(true);
-                        onTouchMethod.invoke(editorObj, event);
-                    }
-                } catch (Exception ignored) {
-                    FbaLog.d("description editor touch dispatch unavailable: " + ignored);
-                }
-
-                final Object finalEditorObj = editorObj;
-
-                GestureDetector gd = gestureDetectorMap.get(tv);
-                if (gd == null) {
-                    gd = new GestureDetector(tv.getContext(), new GestureDetector.SimpleOnGestureListener() {
-                        @Override
-                        public void onLongPress(android.view.MotionEvent e) {
-                            boolean result = tv.performLongClick();
-                            FbaLog.d("BiliHook -> performLongClick returned: " + result);
-
-                            if (!result && finalEditorObj != null) {
-                                try {
-                                    int offset = tv.getOffsetForPosition(e.getX(), e.getY());
-                                    int start = Math.max(0, offset - 2);
-                                    int end = Math.min(tv.getText().length(), offset + 2);
-                                    android.text.Selection.setSelection(
-                                            (android.text.Spannable) tv.getText(), start, end);
-
-                                    Method startActionMode = finalEditorObj.getClass()
-                                            .getDeclaredMethod("startSelectionActionModeAsync", boolean.class);
-                                    startActionMode.setAccessible(true);
-                                    startActionMode.invoke(finalEditorObj, false);
-                                    FbaLog.d("BiliHook -> Hard launched Selection ActionMode.");
-                                } catch (Exception ex) {
-                                    FbaLog.e("BiliHook -> Hard launch failed", ex);
-                                }
-                            }
-                        }
-
-                        @Override
-                        public boolean onSingleTapUp(android.view.MotionEvent e) {
-                            tv.performClick();
-                            return true;
-                        }
-                    });
-                    gd.setIsLongpressEnabled(true);
-                    gestureDetectorMap.put(tv, gd);
-                }
-
-                gd.onTouchEvent(event);
-
-                if (tv.getMovementMethod() != null && tv.getText() instanceof android.text.Spannable) {
-                    tv.getMovementMethod().onTouchEvent(tv, (android.text.Spannable) tv.getText(), event);
-                }
-
-                return true;
+                return copyDescription((View) self) ? Boolean.TRUE : result;
             });
         } catch (Throwable t) {
             FbaLog.e("BiliHook -> descCopyFix failed", t);
+        }
+    }
+
+    /** Copies the whole description text; returns false when there is nothing to copy. */
+    private static boolean copyDescription(View view) {
+        if (!(view instanceof TextView)) {
+            return false;
+        }
+        try {
+            CharSequence text = ((TextView) view).getText();
+            if (text == null || text.length() == 0) {
+                return false;
+            }
+            Context context = view.getContext();
+            android.content.ClipboardManager clipboard =
+                    (android.content.ClipboardManager)
+                            context.getSystemService(Context.CLIPBOARD_SERVICE);
+            if (clipboard == null) {
+                return false;
+            }
+            clipboard.setPrimaryClip(
+                    android.content.ClipData.newPlainText("bilibili", text.toString()));
+            android.widget.Toast.makeText(context, "已复制简介", android.widget.Toast.LENGTH_SHORT)
+                    .show();
+            FbaLog.i("description copied: " + text.length() + " chars");
+            return true;
+        } catch (Throwable t) {
+            FbaLog.e("copy description failed", t);
+            return false;
         }
     }
 
