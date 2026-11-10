@@ -196,7 +196,7 @@ public final class FbaSettings {
                         promptRestart(context);
                     }));
             gestureCard.addView(switchRow(context, "长按复制简介",
-                    "视频详情页长按简介复制整段文字，不影响标签点击与页面滚动",
+                    "关闭后长按简介不再复制，连宿主的「已复制」提示一并屏蔽",
                     FbaPrefs.descCopy(), theme,
                     checked -> FbaPrefs.setDescCopy(checked)));
             if (!Host.isHd()) {

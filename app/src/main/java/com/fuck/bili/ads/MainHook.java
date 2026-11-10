@@ -252,80 +252,88 @@ public class MainHook extends XposedModule {
     }
 
     /**
-     * Adds "long press to copy the description" without touching gesture dispatch.
+     * 简介长按复制开关。
      *
-     * <p>Older builds replaced the TextView's movement method and consumed every
-     * touch event, which broke ClickableSpan tags and made the description a
-     * scroll dead zone. Only a long-click listener is installed now: the host's
-     * LinkMovementMethod, click handling and parent scrolling stay untouched.
+     * <p>宿主的 ExpandableTextView 自己重写了 performLongClick() 并在其中复制文本；
+     * 虚分派只会走到子类实现，因此 hook 基类 View#performLongClick 是拦不到的。
+     * 这里直接挂该子类声明的两个重载：关闭开关时消费事件且不复制，开启时交给宿主。
      */
     private static void descCopyFix(ClassLoader classLoader, DexKitHelper helper) {
         try {
-            final Class<?> type = Reflect.findClass(helper.DESCRIPTION_TEXTVIEW_CLASS_NAME, classLoader);
-
-            Constructor<?> constructor = type.getDeclaredConstructor(
-                    Context.class, AttributeSet.class, int.class);
-            constructor.setAccessible(true);
-            NativeHooks.hook("MainHook.DescriptionConstructor", constructor, chain -> {
-                Object result = chain.proceed();
-                if (!FbaPrefs.descCopy()) {
-                    return result;
+            java.util.List<Class<?>> targets = new java.util.ArrayList<>();
+            Class<?> known = Reflect.findClassIfExists(
+                    "tv.danmaku.bili.videopage.common.widget.view.ExpandableTextView", classLoader);
+            if (known != null) {
+                targets.add(known);
+            }
+            Class<?> base = Reflect.findClassIfExists(helper.DESCRIPTION_TEXTVIEW_CLASS_NAME, classLoader);
+            if (base != null && !targets.contains(base)) {
+                targets.add(base);
+            }
+            int hooked = 0;
+            for (Class<?> type : targets) {
+            for (Method method : type.getDeclaredMethods()) {
+                if (!"performLongClick".equals(method.getName())) {
+                    continue;
                 }
-                TextView tv = (TextView) chain.getThisObject();
-                // Enables the long-press gesture only; movement method, click
-                // handling and parent scrolling are left exactly as the host set them.
-                tv.setLongClickable(true);
-                return result;
+                NativeHooks.hook("MainHook.DescriptionLongClick", method, chain -> {
+                    if (FbaPrefs.descCopy()) {
+                        return chain.proceed();
+                    }
+                    FbaLog.i("description long-press blocked (switch off)");
+                    return Boolean.TRUE;
+                });
+                hooked++;
+            }
+            }
+            FbaLog.i("description long-click hooks=" + hooked + " targets=" + targets.size());
+
+            // 宿主的长按复制由简介服务直接写剪贴板，不经过任何 performLongClick；
+            // 这里按调用方拦截：开关关闭时丢弃来自简介服务的剪贴板写入。
+            Method setClip = NativeHooks.method(android.content.ClipboardManager.class,
+                    "setPrimaryClip", android.content.ClipData.class);
+            NativeHooks.hook("MainHook.DescriptionClipboardGuard", setClip, chain -> {
+                if (!FbaPrefs.descCopy() && isDescriptionCopy()) {
+                    FbaLog.i("description copy blocked (switch off)");
+                    return null;
+                }
+                return chain.proceed();
             });
 
-            // Only act when the host itself did not consume the long click, so a
-            // host-provided menu keeps working.
-            Method longClick = NativeHooks.method(View.class, "performLongClick");
-            NativeHooks.hook("MainHook.DescriptionLongClick", longClick, chain -> {
-                Object result = chain.proceed();
-                if (!FbaPrefs.descCopy()) {
-                    return result;
+            // 宿主的「已复制…」提示由 BToastV3 发出；开关关闭时按文案拦截，
+            // 不依赖复制是否走同一条路径，避免"提示复制成功"的误导。
+            Class<?> bToast = Reflect.findClassIfExists("com.bilibili.droid.toast.BToastV3", classLoader);
+            if (bToast != null) {
+                try {
+                    Method showText = NativeHooks.method(bToast, "show", Context.class, String.class,
+                            int.class, int.class);
+                    NativeHooks.hook("MainHook.DescriptionCopyToast", showText, chain -> {
+                        Object text = chain.getArg(1);
+                        if (!FbaPrefs.descCopy() && text != null && text.toString().contains("复制")) {
+                            FbaLog.i("description copy toast suppressed");
+                            return null;
+                        }
+                        return chain.proceed();
+                    });
+                } catch (Throwable ignored) {
+                    // overload missing on this host
                 }
-                Object self = chain.getThisObject();
-                if (Boolean.TRUE.equals(result) || !type.isInstance(self)) {
-                    return result;
-                }
-                return copyDescription((View) self) ? Boolean.TRUE : result;
-            });
+            }
         } catch (Throwable t) {
             FbaLog.e("BiliHook -> descCopyFix failed", t);
         }
     }
-
-    /** Copies the whole description text; returns false when there is nothing to copy. */
-    private static boolean copyDescription(View view) {
-        if (!(view instanceof TextView)) {
-            return false;
-        }
-        try {
-            CharSequence text = ((TextView) view).getText();
-            if (text == null || text.length() == 0) {
-                return false;
+    /** True when the clipboard write comes from the host description service. */
+    private static boolean isDescriptionCopy() {
+        for (StackTraceElement e : Thread.currentThread().getStackTrace()) {
+            String owner = e.getClassName();
+            if (owner.startsWith("com.bilibili.ship.theseus.ugc.intro")
+                    || owner.toLowerCase(java.util.Locale.ROOT).contains("headline")) {
+                return true;
             }
-            Context context = view.getContext();
-            android.content.ClipboardManager clipboard =
-                    (android.content.ClipboardManager)
-                            context.getSystemService(Context.CLIPBOARD_SERVICE);
-            if (clipboard == null) {
-                return false;
-            }
-            clipboard.setPrimaryClip(
-                    android.content.ClipData.newPlainText("bilibili", text.toString()));
-            android.widget.Toast.makeText(context, "已复制简介", android.widget.Toast.LENGTH_SHORT)
-                    .show();
-            FbaLog.i("description copied: " + text.length() + " chars");
-            return true;
-        } catch (Throwable t) {
-            FbaLog.e("copy description failed", t);
-            return false;
         }
+        return false;
     }
-
     private static void removeAdUnderPlayer(ClassLoader classLoader) {
         try {
             Class<?> viewBindings = Reflect.findClass("androidx.viewbinding.ViewBindings", classLoader);
@@ -370,6 +378,35 @@ public class MainHook extends XposedModule {
             });
         } catch (Throwable t) {
             FbaLog.e("error on paused page ad: " + t, t);
+        }
+
+        // 9.18.0 keeps the "3s 后可关闭" countdown outside the ad panel: the view
+        // is produced by VDPausedPage#getCountDownView. Swap it for an empty view
+        // so the countdown never appears.
+        try {
+            Class<?> vdPaused = Reflect.findClass(
+                    "com.bilibili.ad.adview.videodetail.pausedpage.VDPausedPage", classLoader);
+            int hooked = 0;
+            for (Method method : vdPaused.getDeclaredMethods()) {
+                if (!"getCountDownView".equals(method.getName())) {
+                    continue;
+                }
+                NativeHooks.hook("MainHook.PausedCountDown", method, chain -> {
+                    Context context = null;
+                    for (Object arg : chain.getArgs()) {
+                        if (arg instanceof Context) {
+                            context = (Context) arg;
+                            break;
+                        }
+                    }
+                    FbaLog.i("paused countdown view suppressed");
+                    return context == null ? null : new View(context);
+                });
+                hooked++;
+            }
+            FbaLog.i("paused countdown hooks=" + hooked);
+        } catch (Throwable t) {
+            FbaLog.w("paused countdown hook unavailable: " + t);
         }
 
         try {
