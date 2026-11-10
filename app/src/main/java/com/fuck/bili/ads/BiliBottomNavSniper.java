@@ -4,6 +4,7 @@ import android.util.Log;
 
 import com.fuck.bili.ads.core.NativeHooks;
 import com.fuck.bili.ads.core.Reflect;
+import com.fuck.bili.ads.ui.FbaPrefs;
 
 import java.lang.reflect.Field;
 import java.util.List;
@@ -12,6 +13,26 @@ public class BiliBottomNavSniper {
 
     private static final String TAG = "BiliBottomNavTracker";
     private static final String TARGET_CLASS = "tv.danmaku.bili.ui.main2.basic.BaseMainFrameFragment";
+
+    /**
+     * Rebuilds the host main page so a tab toggle takes effect without killing
+     * the process. The tab views are inflated once per fragment, so a fresh
+     * Activity (about a second) is the cheapest reliable refresh.
+     */
+    public static void reloadHostUi(final android.app.Activity activity) {
+        if (activity == null) {
+            return;
+        }
+        android.os.Handler handler = new android.os.Handler(android.os.Looper.getMainLooper());
+        handler.postDelayed(() -> {
+            try {
+                activity.recreate();
+                Log.d(TAG, "host main page recreated for tab change");
+            } catch (Throwable t) {
+                Log.w(TAG, "recreate failed: " + t);
+            }
+        }, 400L);
+    }
 
     public static void hook(final ClassLoader classLoader) {
         try {
@@ -81,6 +102,11 @@ public class BiliBottomNavSniper {
 
     private static boolean isUnwantedTab(Object obj) {
         if (obj == null) return false;
+        final boolean hideMall = FbaPrefs.navHideMall();
+        final boolean hidePublish = FbaPrefs.navHidePublish();
+        if (!hideMall && !hidePublish) {
+            return false;
+        }
 
         try {
             for (Field field : obj.getClass().getDeclaredFields()) {
@@ -88,13 +114,13 @@ public class BiliBottomNavSniper {
                 Object val = field.get(obj);
 
                 if (val instanceof String) {
-                    if (matchesKeyword((String) val)) return true;
+                    if (matches((String) val, hideMall, hidePublish)) return true;
                 } else if (val != null && !val.getClass().isPrimitive() && !val.getClass().getName().startsWith("java.")) {
                     for (Field innerField : val.getClass().getDeclaredFields()) {
                         innerField.setAccessible(true);
                         Object innerVal = innerField.get(val);
                         if (innerVal instanceof String) {
-                            if (matchesKeyword((String) innerVal)) return true;
+                            if (matches((String) innerVal, hideMall, hidePublish)) return true;
                         }
                     }
                 }
@@ -105,11 +131,17 @@ public class BiliBottomNavSniper {
         return false;
     }
 
-    private static boolean matchesKeyword(String str) {
-        if (str == null) return false;
-        return str.contains("uper/center_plus") ||
-                str.contains("mall/home") ||
-                str.contains("会员购") ||
-                str.contains("发布");
+    /** Path keywords first (9.18.0 still uses them), Chinese labels as fallback. */
+    static boolean matches(String str, boolean hideMall, boolean hidePublish) {
+        if (str == null) {
+            return false;
+        }
+        if (hidePublish && (str.contains("uper/center_plus") || str.contains("发布"))) {
+            return true;
+        }
+        if (hideMall && (str.contains("mall/home") || str.contains("会员购"))) {
+            return true;
+        }
+        return false;
     }
 }

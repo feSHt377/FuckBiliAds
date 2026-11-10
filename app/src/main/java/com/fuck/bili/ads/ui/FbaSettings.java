@@ -34,6 +34,7 @@ import android.widget.TextView;
 import android.widget.Toast;
 
 import com.fuck.bili.ads.BuildConfig;
+import com.fuck.bili.ads.BiliBottomNavSniper;
 import com.fuck.bili.ads.core.Host;
 import com.fuck.bili.ads.story.StoryAdFilter;
 import com.fuck.bili.ads.story.StoryAdSniper;
@@ -175,6 +176,36 @@ public final class FbaSettings {
             if (!Host.isHd()) {
                 addCard(content, context, storyCard(context, theme));
             }
+
+            // ---- 界面与手势 ----
+            LinearLayout gestureCard = card(context, theme);
+            cardHeader(context, gestureCard, theme, "界面与手势",
+                    "底边栏入口与常用手势；底边栏修改需重启宿主生效");
+            gestureCard.addView(switchRow(context, "隐藏「会员购」入口",
+                    "从底边栏移除会员购 tab",
+                    FbaPrefs.navHideMall(), theme,
+                    checked -> {
+                        FbaPrefs.setNavHideMall(checked);
+                        promptRestart(context);
+                    }));
+            gestureCard.addView(switchRow(context, "隐藏「+」发布入口",
+                    "从底边栏移除发布入口；默认保留，很多人需要使用",
+                    FbaPrefs.navHidePublish(), theme,
+                    checked -> {
+                        FbaPrefs.setNavHidePublish(checked);
+                        promptRestart(context);
+                    }));
+            gestureCard.addView(switchRow(context, "长按复制简介",
+                    "视频详情页长按简介复制整段文字，不影响标签点击与页面滚动",
+                    FbaPrefs.descCopy(), theme,
+                    checked -> FbaPrefs.setDescCopy(checked)));
+            if (!Host.isHd()) {
+                gestureCard.addView(switchRow(context, "竖屏点头像进入 UP 主页（实验）",
+                        "在小视频竖屏页点击 UP 头像直接打开主页；默认关闭",
+                        FbaPrefs.storyAvatarJump(), theme,
+                        checked -> FbaPrefs.setStoryAvatarJump(checked)));
+            }
+            addCard(content, context, gestureCard);
 
             // ---- 启动页 ----
             LinearLayout splashCard = card(context, theme);
@@ -789,6 +820,29 @@ public final class FbaSettings {
                     show(context);
                 })
                 .setNegativeButton("取消", null)
+                .show();
+    }
+
+    /**
+     * 底边栏 tab 由宿主在 fragment 创建时一次性生成，改开关后必须重建主界面。
+     * 提供「立即重载」（recreate，约 1 秒、不退出登录）或稍后自行重启。
+     */
+    private static void promptRestart(final Context context) {
+        final Activity activity = activityOf(context);
+        new AlertDialog.Builder(context)
+                .setTitle("需要重启生效")
+                .setMessage("底边栏入口的修改已保存，需要重启哔哩哔哩后生效。\n\n"
+                        + "点「立即重载」会重新加载主界面（约 1 秒），不会退出登录；"
+                        + "也可以点「稍后」，下次打开宿主时自动生效。")
+                .setPositiveButton("立即重载", (dialog, which) -> {
+                    if (current != null && current.isShowing()) {
+                        current.dismiss();
+                        current = null;
+                    }
+                    Toast.makeText(context, "正在重载主界面…", Toast.LENGTH_SHORT).show();
+                    BiliBottomNavSniper.reloadHostUi(activity);
+                })
+                .setNegativeButton("稍后", null)
                 .show();
     }
 

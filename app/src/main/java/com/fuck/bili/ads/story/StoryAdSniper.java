@@ -451,6 +451,10 @@ public final class StoryAdSniper {
             if (pos < 0) {
                 return;
             }
+            if (item != null) {
+                StoryAvatarJump.attach(activity,
+                        child instanceof ViewGroup ? (ViewGroup) child : rv, item);
+            }
             if (FbaPrefs.storyFilter() && StoryGesture.isSettled(rv)
                     && StoryAdFilter.passAllowed(now(), startedAt, lastPruneAt,
                             PRUNE_WINDOW_MS, 3000L)) {

@@ -268,6 +268,9 @@ public class MainHook extends XposedModule {
             constructor.setAccessible(true);
             NativeHooks.hook("MainHook.DescriptionConstructor", constructor, chain -> {
                 Object result = chain.proceed();
+                if (!FbaPrefs.descCopy()) {
+                    return result;
+                }
                 TextView tv = (TextView) chain.getThisObject();
                 // Enables the long-press gesture only; movement method, click
                 // handling and parent scrolling are left exactly as the host set them.
@@ -280,6 +283,9 @@ public class MainHook extends XposedModule {
             Method longClick = NativeHooks.method(View.class, "performLongClick");
             NativeHooks.hook("MainHook.DescriptionLongClick", longClick, chain -> {
                 Object result = chain.proceed();
+                if (!FbaPrefs.descCopy()) {
+                    return result;
+                }
                 Object self = chain.getThisObject();
                 if (Boolean.TRUE.equals(result) || !type.isInstance(self)) {
                     return result;
@@ -350,8 +356,18 @@ public class MainHook extends XposedModule {
             Class<?> panel = Reflect.findClass(
                     "com.bilibili.ad.adview.videodetail.pausedpage.AdPausedPagePanel", classLoader);
             Method create = NativeHooks.method(panel, "onCreateView", ViewGroup.class);
-            NativeHooks.hook("MainHook.PausedPageAd", create, chain ->
-                    new View(((ViewGroup) chain.getArg(0)).getContext()));
+            NativeHooks.hook("MainHook.PausedPageAd", create, chain -> {
+                // Return an empty panel, then ask the host to dismiss it right
+                // away: the empty view alone still leaves the 3-second countdown
+                // overlay running.
+                Object self = chain.getThisObject();
+                View empty = new View(((ViewGroup) chain.getArg(0)).getContext());
+                FbaRuntime.onMain(() -> {
+                    Object dismissed = Reflect.tryCallMethod(self, "requestDismiss", true);
+                    FbaLog.i("paused page ad dismissed: " + dismissed);
+                });
+                return empty;
+            });
         } catch (Throwable t) {
             FbaLog.e("error on paused page ad: " + t, t);
         }

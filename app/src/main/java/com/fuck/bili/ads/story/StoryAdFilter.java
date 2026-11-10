@@ -116,17 +116,27 @@ public final class StoryAdFilter {
             int installed = 0;
             for (Method method : player.getDeclaredMethods()) {
                 try {
-                    if (method.getReturnType() != void.class) {
+                    // 9.18.0 renamed the batch entry points and moved the list to
+                    // other argument positions, so match by shape: any method that
+                    // takes or returns a List is a candidate.
+                    boolean takesList = false;
+                    Class<?>[] types = method.getParameterTypes();
+                    for (Class<?> type : types) {
+                        if (List.class.isAssignableFrom(type)) {
+                            takesList = true;
+                            break;
+                        }
+                    }
+                    if (!takesList) {
+                        // Pure getters (o1) must keep returning the host's own
+                        // list instance; only filter methods that consume one.
                         continue;
                     }
-                    Class<?>[] types = method.getParameterTypes();
-                    boolean isStatic = Modifier.isStatic(method.getModifiers());
-                    if (!isStatic && types.length == 1 && List.class.isAssignableFrom(types[0])) {
-                        installed += hook(method, 0) ? 1 : 0;
-                    } else if (isStatic && types.length >= 2 && types[0] == player
-                            && List.class.isAssignableFrom(types[1])) {
-                        installed += hook(method, 1) ? 1 : 0;
+                    boolean returnsList = List.class.isAssignableFrom(method.getReturnType());
+                    if (method.getReturnType() != void.class && !returnsList) {
+                        continue;
                     }
+                    installed += hook(method) ? 1 : 0;
                 } catch (Throwable t) {
                     FbaLog.w("story filter: skip " + method.getName() + " (" + t + ")");
                 }
@@ -140,13 +150,20 @@ public final class StoryAdFilter {
         }
     }
 
-    private static boolean hook(Method method, final int index) {
+    /**
+     * Filters every List argument of {@code method} (and the returned list, when
+     * it returns one). Shape-based so it survives the host renaming its batch
+     * methods, which is exactly what broke the old name/signature assumptions.
+     */
+    private static boolean hook(Method method) {
+        final boolean returnsList = List.class.isAssignableFrom(method.getReturnType());
         String key = method.getDeclaringClass().getName() + "#" + method.getName()
-                + "#" + method.getParameterCount();
+                + "#" + method.getParameterCount() + "#" + returnsList;
         if (!HOOKED.add(key)) {
             return false;
         }
-        final boolean prepend = "t1".equals(method.getName());
+        final Class<?>[] types = method.getParameterTypes();
+        final int listIndex = firstListIndex(types);
         final boolean replace = Modifier.isStatic(method.getModifiers());
         try {
             NativeHooks.hook("StoryAdFilter." + method.getName(), method, chain -> {
@@ -159,12 +176,7 @@ public final class StoryAdFilter {
                     if (StoryGesture.isBusy()) {
                         return chain.proceed();
                     }
-                    Object raw = chain.getArg(index);
-                    if (!(raw instanceof List)) {
-                        return chain.proceed();
-                    }
 
-                    // 只有开启“附带位置”时才读取当前可见位置；否则不额外遍历视图。
                     Activity activity = null;
                     int currentPos = -1;
                     int baseIndex = -1;
@@ -173,37 +185,71 @@ public final class StoryAdFilter {
                         if (activity == null) {
                             activity = FbaRuntime.topActivity();
                         }
-                        if (activity != null && !prepend) {
+                        if (activity != null) {
                             ViewGroup rv = StoryView.findRecycler(activity);
                             if (rv != null) {
                                 currentPos = StoryView.dominantPos(rv);
                                 int oldCount = StoryView.itemCount(StoryView.adapterOf(rv));
-                                // T0 追加在当前列表之后；V1 是整表替换。
                                 baseIndex = replace ? 0 : oldCount;
                             }
                         }
                     }
 
-                    FilterOutcome outcome = withoutAds((List<?>) raw, activity,
-                            currentPos, baseIndex);
-                    if (outcome == null) {
-                        return chain.proceed();
-                    }
                     Object[] args = chain.getArgs().toArray();
-                    args[index] = outcome.kept;
-                    return chain.proceed(args);
+                    boolean changed = false;
+                    for (int i = 0; i < args.length; i++) {
+                        if (!(args[i] instanceof List)) {
+                            continue;
+                        }
+                        FilterOutcome outcome = withoutAds((List<?>) args[i], activity,
+                                i == listIndex ? currentPos : -1, i == listIndex ? baseIndex : -1);
+                        if (outcome != null) {
+                            args[i] = outcome.kept;
+                            changed = true;
+                        }
+                    }
+                    Object result = changed ? chain.proceed(args) : chain.proceed();
+                    if (returnsList && result instanceof List) {
+                        FilterOutcome outcome = withoutAds((List<?>) result, activity, -1, -1);
+                        if (outcome != null) {
+                            return outcome.kept;
+                        }
+                    }
+                    return result;
                 } catch (Throwable t) {
                     lastError = String.valueOf(t);
                     FbaLog.w("story filter: entry hook failed (" + t + ")");
                     return chain.proceed();
                 }
             });
+            FbaLog.i("story filter: hooked " + method.getName() + signatureOf(method));
             return true;
         } catch (Throwable t) {
             HOOKED.remove(key);
             FbaLog.w("story filter: hook " + method.getName() + " failed (" + t + ")");
             return false;
         }
+    }
+
+    private static int firstListIndex(Class<?>[] types) {
+        for (int i = 0; i < types.length; i++) {
+            if (List.class.isAssignableFrom(types[i])) {
+                return i;
+            }
+        }
+        return -1;
+    }
+
+    private static String signatureOf(Method method) {
+        StringBuilder sb = new StringBuilder("(");
+        Class<?>[] types = method.getParameterTypes();
+        for (int i = 0; i < types.length; i++) {
+            if (i > 0) {
+                sb.append(',');
+            }
+            sb.append(types[i].getSimpleName());
+        }
+        return sb.append(")").append(method.getReturnType().getSimpleName()).toString();
     }
 
     private static final class FilterOutcome {

@@ -38,6 +38,12 @@ public final class FbaPrefs {
     private static final String KEY_BLOCK_LIVE = "block_live";
     private static final String KEY_BLOCK_FOLLOW = "block_follow";
 
+    // ---- 界面精简 / 手势 ----
+    private static final String KEY_NAV_HIDE_MALL = "nav_hide_mall";
+    private static final String KEY_NAV_HIDE_PUBLISH = "nav_hide_publish";
+    private static final String KEY_DESC_COPY = "desc_copy";
+    private static final String KEY_STORY_AVATAR_JUMP = "story_avatar_jump";
+
     // ---- update checker ----
     private static final String KEY_UPDATE_AUTO = "update_auto";
     private static final String KEY_UPDATE_PRERELEASE = "update_prerelease";
@@ -237,6 +243,44 @@ public final class FbaPrefs {
 
     public static void setBlockFollow(boolean value) {
         putBoolean(KEY_BLOCK_FOLLOW, value);
+    }
+
+    // ------------------------------------------------------------ 界面 / 手势
+
+    /** 底边栏隐藏「会员购」入口。 */
+    public static boolean navHideMall() {
+        return getBoolean(KEY_NAV_HIDE_MALL, true);
+    }
+
+    public static void setNavHideMall(boolean value) {
+        putBoolean(KEY_NAV_HIDE_MALL, value);
+    }
+
+    /** 底边栏隐藏「+」发布入口；默认保留，很多人要用。 */
+    public static boolean navHidePublish() {
+        return getBoolean(KEY_NAV_HIDE_PUBLISH, false);
+    }
+
+    public static void setNavHidePublish(boolean value) {
+        putBoolean(KEY_NAV_HIDE_PUBLISH, value);
+    }
+
+    /** 长按简介复制整段文字。 */
+    public static boolean descCopy() {
+        return getBoolean(KEY_DESC_COPY, true);
+    }
+
+    public static void setDescCopy(boolean value) {
+        putBoolean(KEY_DESC_COPY, value);
+    }
+
+    /** 竖屏页点头像进入 UP 主页（实验，默认关闭）。 */
+    public static boolean storyAvatarJump() {
+        return getBoolean(KEY_STORY_AVATAR_JUMP, false);
+    }
+
+    public static void setStoryAvatarJump(boolean value) {
+        putBoolean(KEY_STORY_AVATAR_JUMP, value);
     }
 
     // ------------------------------------------------------------- update check
