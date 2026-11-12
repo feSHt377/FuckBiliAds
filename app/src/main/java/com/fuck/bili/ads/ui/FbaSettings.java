@@ -300,7 +300,15 @@ public final class FbaSettings {
             // ---- 关于模块 ----
             LinearLayout aboutCard = card(context, theme);
             cardHeader(context, aboutCard, theme, "关于模块", null);
-            aboutCard.addView(infoRow(context, "模块版本", versionName(context), theme));
+            View versionRow = infoRow(context, "模块版本", versionName(context), theme);
+            // 长按重置版本记录，便于验证「更新后首次启动自动重启」。
+            versionRow.setOnLongClickListener(v -> {
+                FbaPrefs.setLastModuleCode(0);
+                Toast.makeText(context, "已重置版本记录，下次启动将提示重启",
+                        Toast.LENGTH_SHORT).show();
+                return true;
+            });
+            aboutCard.addView(versionRow);
             aboutCard.addView(infoRow(context, "宿主版本", hostVersion(context), theme));
             aboutCard.addView(infoRow(context, "小视频 Hook",
                     StoryAdSniper.isReady() ? "已就绪" : "未就绪", theme));

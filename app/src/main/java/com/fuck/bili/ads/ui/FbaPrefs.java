@@ -42,6 +42,7 @@ public final class FbaPrefs {
     private static final String KEY_NAV_HIDE_MALL = "nav_hide_mall";
     private static final String KEY_NAV_HIDE_PUBLISH = "nav_hide_publish";
     private static final String KEY_DESC_COPY = "desc_copy";
+    private static final String KEY_LAST_MODULE_CODE = "last_module_code";
     private static final String KEY_STORY_AVATAR_JUMP = "story_avatar_jump";
 
     // ---- update checker ----
@@ -274,6 +275,14 @@ public final class FbaPrefs {
         putBoolean(KEY_DESC_COPY, value);
     }
 
+    /** 上次运行时的模块 versionCode，用于更新后首次加载自动重启宿主。 */
+    public static int lastModuleCode() {
+        return (int) getLong(KEY_LAST_MODULE_CODE, 0L);
+    }
+
+    public static void setLastModuleCode(int value) {
+        putLong(KEY_LAST_MODULE_CODE, value);
+    }
     /** 竖屏页点头像进入 UP 主页（实验，默认关闭）。 */
     public static boolean storyAvatarJump() {
         return getBoolean(KEY_STORY_AVATAR_JUMP, false);

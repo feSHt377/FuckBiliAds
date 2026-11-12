@@ -92,6 +92,7 @@ public final class StoryAdSniper {
         hostLoader = classLoader;
 
         StoryGesture.install(classLoader);
+        StoryAvatarJump.install();
 
         boolean filter = StoryAdFilter.install(classLoader);
         FbaRuntime.mark("剔除", filter);
@@ -422,10 +423,6 @@ public final class StoryAdSniper {
         }
 
         private void scan() {
-            if (!FbaPrefs.storySkip()) {
-                StoryDiag.update("自动跳过已关闭");
-                return;
-            }
             ViewGroup rv = StoryView.findRecycler(activity);
             if (rv == null) {
                 StoryDiag.update("未找到小视频列表（页面结构未匹配）");
@@ -443,6 +440,15 @@ public final class StoryAdSniper {
                     + " ad=" + ad + " " + adInfo(item);
             StoryDiag.update(diag);
             reportDiag(diag);
+            // The avatar entry is independent from automatic ad skipping.
+            if (!StoryGesture.isScrolling(rv) && pos >= 0 && item != null) {
+                StoryAvatarJump.attach(activity,
+                        child instanceof ViewGroup ? (ViewGroup) child : rv, item);
+            }
+            if (!FbaPrefs.storySkip()) {
+                StoryDiag.update("自动跳过已关闭");
+                return;
+            }
             // Never touch the host list or drive the pager mid-gesture: doing so
             // cancels the in-flight fling and the swipe is lost.
             if (StoryGesture.isScrolling(rv)) {
@@ -450,10 +456,6 @@ public final class StoryAdSniper {
             }
             if (pos < 0) {
                 return;
-            }
-            if (item != null) {
-                StoryAvatarJump.attach(activity,
-                        child instanceof ViewGroup ? (ViewGroup) child : rv, item);
             }
             if (FbaPrefs.storyFilter() && StoryGesture.isSettled(rv)
                     && StoryAdFilter.passAllowed(now(), startedAt, lastPruneAt,

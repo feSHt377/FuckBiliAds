@@ -222,6 +222,7 @@ public class MainHook extends XposedModule {
         FbaLog.i("[BOOT] hooks done: " + FbaRuntime.summary()
                 + ", registered=" + HookRegistry.size());
         FbaRuntime.announce(2500L);
+        FbaRuntime.whenReady(() -> UpdateRestart.check(Host.currentApplication()));
     }
 
     /**
