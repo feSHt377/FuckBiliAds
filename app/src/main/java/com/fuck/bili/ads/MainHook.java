@@ -208,7 +208,8 @@ public class MainHook extends XposedModule {
         if (!Host.isHdPackage(packageName)) {
             install("大会员预测", () -> VIPPredict.hook(classLoader, helper));
         }
-        if (FbaPrefs.blockLive() && !Host.isHdPackage(packageName)) {
+        if (!Host.isHdPackage(packageName)) {
+            // 开关在 hook 内运行时判断：改设置立即生效，无需重启宿主。
             install("直播间广告", () -> LiveRoomAdSniper.hook(classLoader, helper));
         }
         install("免流提示", () -> FreeDataToastSniper.hook(classLoader, helper));
