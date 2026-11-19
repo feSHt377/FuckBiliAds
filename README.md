@@ -9,8 +9,9 @@
 [![release](https://img.shields.io/github/v/release/feSHt377/FuckBiliAds?color=ff2d55)](https://github.com/feSHt377/FuckBiliAds/releases/latest)
 [![stars](https://img.shields.io/github/stars/feSHt377/FuckBiliAds?label=stars&color=ff2d55)](https://github.com/feSHt377/FuckBiliAds/stargazers)
 [![downloads](https://img.shields.io/github/downloads/feSHt377/FuckBiliAds/total?color=00aeec)](https://github.com/feSHt377/FuckBiliAds/releases)
+[![last commit](https://img.shields.io/github/last-commit/feSHt377/FuckBiliAds?label=%E4%B8%8A%E6%AC%A1%E6%8F%90%E4%BA%A4&color=ff2d55)](https://github.com/feSHt377/FuckBiliAds/commits/main)
 [![xposed repo](https://img.shields.io/badge/Xposed%20Repo-listed-00aeec)](https://modules.lsposed.org/module/io.github.fesht377.biliads/)
-![host](https://img.shields.io/badge/host-9.18.0%20%2B%20HD%202.5.1-00aeec)
+![host](https://img.shields.io/badge/host-9.19.0%20%2B%20HD%202.5.1-00aeec)
 ![platform](https://img.shields.io/badge/platform-Android%208.0%2B-3ddc84)
 ![framework](https://img.shields.io/badge/LSPosed%20%2F%20LSPatch-API%20102-3ddc84)
 
@@ -39,7 +40,7 @@
 | 设置入口 | 「我的 → 更多服务 → FuckBiliAds」，手机版与 HD 位置一致 |
 | 日志与诊断 | 文件 + logcat 双写，设置页可查看、导出、清空 |
 
-完整变更见 [Releases](https://github.com/feSHt377/FuckBiliAds/releases)。
+完整变更见 [Releases](https://github.com/feSHt377/FuckBiliAds/releases)；日常改动与上次提交时间见 [提交记录](https://github.com/feSHt377/FuckBiliAds/commits/main)，页首徽章会自动显示上一次提交距今多久。
 
 ## 安装
 
@@ -57,11 +58,12 @@
 
 | 宿主 | 版本 | 状态 |
 |---|---|---|
+| 哔哩哔哩 | **9.19.0** | 🟡 1.4.1 实测可注入，主页 / 直播间 / 小视频正常，其余待验证 |
 | 哔哩哔哩 | **9.18.0（9180300）** | ✅ 日常使用实测正常 |
 | 哔哩哔哩 | 9.17.0（9170300） | ✅ LSPatch 实测核心功能 |
 | 哔哩哔哩 | 9.16.1（9161100）、9.15.0 | ✅ 实测 |
 | 哔哩哔哩 HD | **2.5.1** | ✅ 开屏、我的页入口、播放页、信息流 |
-| 9.14 及更早 / 9.19 及更新 | — | ⚠️ 未验证 |
+| 9.14 及更早 / 9.20 及更新 | — | ⚠️ 未验证 |
 
 - Android 8.0+（minSdk 26），Xposed API 102（LSPosed 2.2.1+ 或 LSPatch）
 - 模块包名 `io.github.fesht377.biliads`
